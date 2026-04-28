@@ -1,0 +1,43 @@
+import type { CalculatorInputs } from "./types";
+
+export const defaultInputs: CalculatorInputs = {
+  insuredAge: 32,
+  spouseAge: 25,
+  retirementAge: 60,
+  survivingSpouseLongevityAge: 95,
+  annualIncome: 600000,
+  monthlyHouseholdNeedExcludingMortgage: 12000,
+  survivingSpouseIncome: 0,
+  currentLiquidAssets: 100000,
+  annualNonRetirementSavings: 20000,
+  nominalAssetGrowthRate: 0.05,
+  currentRetirementAssets: 100000,
+  annualRetirementSavings: 72000,
+  nominalRetirementGrowthRate: 0.06,
+  preTaxRetirementShare: 1,
+  preTaxRetirementHaircut: 0,
+  postTaxRetirementHaircut: 0,
+  inflationRate: 0.025,
+  nominalDiscountRate: 0.05,
+  mortgageBalance: 1500000,
+  mortgageAnnualRate: 0.06,
+  mortgageYearsRemaining: 15,
+  employerSalaryMultiplier: 2,
+  employerCoverageEndYear: 28,
+  includeEmployerCoverage: true,
+  selectedNeedBasis: "income",
+  coverageIncrement: 100000,
+  maxCoveragePerTerm: 10000000,
+  children: [
+    { id: "child-1", label: "Child 1", ageToday: 0 },
+    { id: "child-2", label: "Child 2", ageToday: 0 },
+    { id: "child-3", label: "Child 3", ageToday: 0 },
+    { id: "child-4", label: "Planned child", birthYearOffset: 7 }
+  ],
+  costWeights: {
+    10: 1,
+    15: 1.4,
+    20: 2.2,
+    30: 4.5
+  }
+};

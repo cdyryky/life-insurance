@@ -1,0 +1,96 @@
+export type NeedBasis = "income" | "spending";
+
+export type ChildInput = {
+  id: string;
+  label: string;
+  ageToday?: number;
+  birthYearOffset?: number;
+};
+
+export type TermLength = 10 | 15 | 20 | 30;
+
+export type CalculatorInputs = {
+  insuredAge: number;
+  spouseAge: number;
+  retirementAge: number;
+  survivingSpouseLongevityAge: number;
+  annualIncome: number;
+  monthlyHouseholdNeedExcludingMortgage: number;
+  survivingSpouseIncome: number;
+  currentLiquidAssets: number;
+  annualNonRetirementSavings: number;
+  nominalAssetGrowthRate: number;
+  currentRetirementAssets: number;
+  annualRetirementSavings: number;
+  nominalRetirementGrowthRate: number;
+  preTaxRetirementShare: number;
+  preTaxRetirementHaircut: number;
+  postTaxRetirementHaircut: number;
+  inflationRate: number;
+  nominalDiscountRate: number;
+  mortgageBalance: number;
+  mortgageAnnualRate: number;
+  mortgageYearsRemaining: number;
+  employerSalaryMultiplier: number;
+  employerCoverageEndYear: number;
+  includeEmployerCoverage: boolean;
+  selectedNeedBasis: NeedBasis;
+  coverageIncrement: number;
+  maxCoveragePerTerm: number;
+  children: ChildInput[];
+  costWeights: Record<TermLength, number>;
+};
+
+export type PolicyRecommendation = {
+  termYears: TermLength;
+  amount: number;
+  activeYears: number;
+  costWeight: number;
+};
+
+export type YearlyRow = {
+  year: number;
+  incomePvNeed: number;
+  spendingPvNeed: number;
+  dependentFloorNeed: number;
+  selectedPvNeed: number;
+  mortgagePrincipal: number;
+  liquidAssets: number;
+  retirementAssetsBeforeHaircut: number;
+  retirementAssetsAfterHaircut: number;
+  effectiveRetirementTaxHaircut: number;
+  accessibleAssets: number;
+  grossNeed: number;
+  employerCoverage: number;
+  selectedNetNeed: number;
+  personalLadderCoverage: number;
+  totalCoverage: number;
+  undercoverage: number;
+  overcoverage: number;
+  capitalSupply: number;
+  capitalDemand: number;
+  capitalGap: number;
+};
+
+export type CapitalSufficiency = {
+  worstGap: number;
+  worstGapYear: number;
+  firstDeficitYear: number | null;
+};
+
+export type SolverWarning = {
+  kind: "residual-after-30" | "infeasible-cap";
+  message: string;
+};
+
+export type CalculatorResult = {
+  rows: YearlyRow[];
+  policies: PolicyRecommendation[];
+  warnings: SolverWarning[];
+  realDiscountRate: number;
+  realAssetGrowthRate: number;
+  realRetirementGrowthRate: number;
+  effectiveRetirementTaxHaircut: number;
+  capitalSufficiency: CapitalSufficiency;
+  weightedFaceAmount: number;
+};
