@@ -195,10 +195,10 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
       .join(" ");
 
   const policyBands = [
-    { term: 30, color: "rgba(15, 107, 79, 0.08)" },
-    { term: 20, color: "rgba(29, 78, 216, 0.08)" },
-    { term: 15, color: "rgba(245, 158, 11, 0.1)" },
-    { term: 10, color: "rgba(15, 107, 79, 0.12)" }
+    { term: 30, color: "rgba(21, 94, 76, 0.08)" },
+    { term: 20, color: "rgba(37, 99, 235, 0.07)" },
+    { term: 15, color: "rgba(183, 121, 31, 0.08)" },
+    { term: 10, color: "rgba(21, 94, 76, 0.12)" }
   ];
 
   return (
@@ -243,13 +243,13 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
             </text>
           </g>
         ))}
-        <path d={pathFor((row) => row.incomePvNeed)} fill="none" stroke="#1d4ed8" strokeWidth="3" strokeDasharray="7 6" />
-        <path d={pathFor((row) => row.spendingPvNeed)} fill="none" stroke="#0f6b4f" strokeWidth="3" />
-        <path d={pathFor((row) => row.grossNeed)} fill="none" stroke="#f59e0b" strokeWidth="3" />
+        <path d={pathFor((row) => row.incomePvNeed)} fill="none" stroke="#2563eb" strokeWidth="3" strokeDasharray="7 6" />
+        <path d={pathFor((row) => row.spendingPvNeed)} fill="none" stroke="#155e4c" strokeWidth="3" />
+        <path d={pathFor((row) => row.grossNeed)} fill="none" stroke="#b7791f" strokeWidth="3" />
         <path
           d={pathFor((row) => row.totalCoverage)}
           fill="none"
-          stroke="#0f6b4f"
+          stroke="#0f4f42"
           strokeWidth="4"
         />
       </svg>
