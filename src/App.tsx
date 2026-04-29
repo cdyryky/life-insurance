@@ -14,7 +14,6 @@ import { calculateLadder } from "./model";
 import type {
   CalculatorInputs,
   CalculatorResult,
-  ChildInput,
   NeedBasis,
   TermLength,
   YearlyRow
@@ -260,12 +259,6 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
         <span><i className="black" />Total coverage</span>
       </div>
     </div>
-  );
-}
-
-function updateChild(children: ChildInput[], index: number, patch: Partial<ChildInput>) {
-  return children.map((child, childIndex) =>
-    childIndex === index ? { ...child, ...patch } : child
   );
 }
 
@@ -546,34 +539,7 @@ export function App() {
           </section>
 
           <section className="panel">
-            <SectionTitle index={6}>Children</SectionTitle>
-            {inputs.children.map((child, index) => (
-              <div className="childRow" key={child.id}>
-                <strong>{child.label}</strong>
-                {"ageToday" in child ? (
-                  <Field
-                    label="Age today"
-                    value={child.ageToday ?? 0}
-                    onChange={(value) =>
-                      setInput("children", updateChild(inputs.children, index, { ageToday: value }))
-                    }
-                  />
-                ) : (
-                  <Field
-                    label="Birth year offset"
-                    value={child.birthYearOffset ?? 0}
-                    onChange={(value) =>
-                      setInput("children", updateChild(inputs.children, index, { birthYearOffset: value }))
-                    }
-                    help="Offset is relative to today."
-                  />
-                )}
-              </div>
-            ))}
-          </section>
-
-          <section className="panel">
-            <SectionTitle index={7}>Premium Cost Weights</SectionTitle>
+            <SectionTitle index={6}>Premium Cost Weights</SectionTitle>
             {TERMS.map((term) => (
               <Field
                 key={term}

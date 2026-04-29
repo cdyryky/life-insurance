@@ -37,12 +37,6 @@ export const defaultInputs: CalculatorInputs = {
   selectedNeedBasis: "spending",
   coverageIncrement: 100000,
   maxCoveragePerTerm: 10000000,
-  children: [
-    { id: "child-1", label: "Child 1", ageToday: 0 },
-    { id: "child-2", label: "Child 2", ageToday: 0 },
-    { id: "child-3", label: "Child 3", ageToday: 0 },
-    { id: "child-4", label: "Planned child", birthYearOffset: 7 }
-  ],
   costWeights: {
     10: 1,
     15: 1.4,

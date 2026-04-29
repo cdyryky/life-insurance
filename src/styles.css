@@ -528,25 +528,6 @@ h1 {
   margin-bottom: 12px;
 }
 
-.childRow {
-  padding: 12px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 10px;
-}
-
-.childRow strong {
-  display: block;
-  color: #0f172a;
-  font-size: 0.82rem;
-  margin-bottom: 8px;
-}
-
-.childRow .field {
-  margin: 0;
-}
-
 .panelHeader {
   justify-content: space-between;
   margin-bottom: 14px;

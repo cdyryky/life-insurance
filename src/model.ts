@@ -40,7 +40,8 @@ export function pensionAccrualPercent(serviceYears: number) {
 
 export function calculateSurvivorPensionValue(
   inputs: CalculatorInputs,
-  year: number
+  year: number,
+  realDiscountRate: number
 ) {
   const serviceYears = Math.max(0, inputs.pensionCurrentServiceYears + year);
   const participantAgeAtDeath = inputs.insuredAge + year;
@@ -86,10 +87,10 @@ export function calculateSurvivorPensionValue(
   const pvAtCommencement = presentValueAnnuity(
     survivorAnnualPension,
     paymentYears,
-    inputs.nominalDiscountRate
+    realDiscountRate
   );
   const pvAtDeath =
-    pvAtCommencement / Math.pow(1 + inputs.nominalDiscountRate, defermentYears);
+    pvAtCommencement / Math.pow(1 + realDiscountRate, defermentYears);
   const taxAdjustedValue = pvAtDeath * inputs.pensionTaxAdjustmentFactor;
 
   return {
@@ -137,25 +138,15 @@ export function accumulateRealAssets(
   startingBalance: number,
   annualContribution: number,
   realGrowthRate: number,
-  throughYear: number
+  throughYear: number,
+  inflationRate: number
 ) {
   let balance = Math.max(0, startingBalance);
   for (let year = 0; year < throughYear; year += 1) {
-    balance = balance * (1 + realGrowthRate) + Math.max(0, annualContribution);
+    const realContribution = annualContribution / Math.pow(1 + inflationRate, year);
+    balance = balance * (1 + realGrowthRate) + Math.max(0, realContribution);
   }
   return Math.max(0, balance);
-}
-
-export function childYearsUntilYoungest18(inputs: CalculatorInputs) {
-  return inputs.children.reduce((maxYears, child) => {
-    if (typeof child.ageToday === "number") {
-      return Math.max(maxYears, Math.max(0, 18 - child.ageToday));
-    }
-    if (typeof child.birthYearOffset === "number") {
-      return Math.max(maxYears, Math.max(0, child.birthYearOffset + 18));
-    }
-    return maxYears;
-  }, 0);
 }
 
 export function effectiveRetirementTaxHaircut(inputs: CalculatorInputs) {
@@ -182,7 +173,6 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
   );
   const retirementHaircut = effectiveRetirementTaxHaircut(inputs);
   const retirementHorizon = Math.max(0, inputs.retirementAge - inputs.insuredAge);
-  const childFloorYears = childYearsUntilYoungest18(inputs);
   const annualSpendingDeficit = Math.max(
     0,
     inputs.monthlyHouseholdNeedExcludingMortgage * 12 -
@@ -197,7 +187,6 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       0,
       inputs.survivingSpouseLongevityAge - spouseAgeAtDeath
     );
-    const remainingFloorYears = Math.max(0, childFloorYears - year);
     const incomePvNeed = presentValueAnnuity(
       inputs.annualIncome,
       remainingIncomeYears,
@@ -208,15 +197,8 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       remainingSpendingYears,
       realDiscountRate
     );
-    const dependentFloorNeed = presentValueAnnuity(
-      annualSpendingDeficit,
-      remainingFloorYears,
-      realDiscountRate
-    );
-    const selectedPvNeed = Math.max(
-      inputs.selectedNeedBasis === "income" ? incomePvNeed : spendingPvNeed,
-      dependentFloorNeed
-    );
+    const selectedPvNeed =
+      inputs.selectedNeedBasis === "income" ? incomePvNeed : spendingPvNeed;
     const mortgagePrincipal = remainingMortgagePrincipal(
       inputs.mortgageBalance,
       inputs.mortgageAnnualRate,
@@ -227,17 +209,23 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       inputs.currentLiquidAssets,
       inputs.annualNonRetirementSavings,
       realAssetGrowthRate,
-      year
+      year,
+      inputs.inflationRate
     );
     const retirementAssetsBeforeHaircut = accumulateRealAssets(
       inputs.currentRetirementAssets,
       inputs.annualRetirementSavings,
       realRetirementGrowthRate,
-      year
+      year,
+      inputs.inflationRate
     );
     const retirementAssetsAfterHaircut =
       retirementAssetsBeforeHaircut * (1 - retirementHaircut);
-    const survivorPension = calculateSurvivorPensionValue(inputs, year);
+    const survivorPension = calculateSurvivorPensionValue(
+      inputs,
+      year,
+      realDiscountRate
+    );
     const accessibleAssets =
       liquidAssets + retirementAssetsAfterHaircut + survivorPension.taxAdjustedValue;
     const grossNeed = Math.max(0, selectedPvNeed + mortgagePrincipal - accessibleAssets);
@@ -251,7 +239,6 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       year,
       incomePvNeed,
       spendingPvNeed,
-      dependentFloorNeed,
       selectedPvNeed,
       mortgagePrincipal,
       liquidAssets,

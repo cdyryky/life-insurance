@@ -4,7 +4,6 @@ import {
   buildBaseNeedRows,
   calculateLadder,
   calculateSurvivorPensionValue,
-  childYearsUntilYoungest18,
   effectiveRetirementTaxHaircut,
   fisherRealRate,
   pensionAccrualPercent,
@@ -13,6 +12,9 @@ import {
 } from "./model";
 
 describe("life insurance model", () => {
+  const realDiscountRateFor = (inputs: typeof defaultInputs) =>
+    fisherRealRate(inputs.nominalDiscountRate, inputs.inflationRate);
+
   it("calculates the Fisher real discount rate", () => {
     expect(fisherRealRate(0.05, 0.025)).toBeCloseTo(0.02439024, 6);
   });
@@ -33,13 +35,24 @@ describe("life insurance model", () => {
       nominalRetirementGrowthRate: 0.06,
       inflationRate: 0.03
     });
-    const row = result.rows[1];
+    const row1 = result.rows[1];
+    const row2 = result.rows[2];
+    const realAssetGrowthFactor = 1.06 / 1.03;
+    const realRetirementGrowthFactor = 1.06 / 1.03;
+    const liquidYear1 =
+      100000 * realAssetGrowthFactor + 10000 / Math.pow(1.03, 0);
+    const liquidYear2 =
+      liquidYear1 * realAssetGrowthFactor + 10000 / Math.pow(1.03, 1);
+    const retirementYear1 =
+      200000 * realRetirementGrowthFactor + 72000 / Math.pow(1.03, 0);
+    const retirementYear2 =
+      retirementYear1 * realRetirementGrowthFactor + 72000 / Math.pow(1.03, 1);
+
     expect(result.realAssetGrowthRate).toBeCloseTo((1.06 / 1.03) - 1, 8);
-    expect(row.liquidAssets).toBeCloseTo(100000 * (1.06 / 1.03) + 10000, 0);
-    expect(row.retirementAssetsBeforeHaircut).toBeCloseTo(
-      200000 * (1.06 / 1.03) + 72000,
-      0
-    );
+    expect(row1.liquidAssets).toBeCloseTo(liquidYear1, 0);
+    expect(row2.liquidAssets).toBeCloseTo(liquidYear2, 0);
+    expect(row1.retirementAssetsBeforeHaircut).toBeCloseTo(retirementYear1, 0);
+    expect(row2.retirementAssetsBeforeHaircut).toBeCloseTo(retirementYear2, 0);
   });
 
   it("spending PV uses spouse longevity while income PV ends at insured retirement", () => {
@@ -63,6 +76,21 @@ describe("life insurance model", () => {
       presentValueAnnuity(144000, 70, result.realDiscountRate),
       0
     );
+    expect(row.selectedPvNeed).toBeCloseTo(row.spendingPvNeed, 0);
+  });
+
+  it("selects the chosen need basis without a dependent floor override", () => {
+    const incomeRow = buildBaseNeedRows({
+      ...defaultInputs,
+      selectedNeedBasis: "income"
+    }).rows[0];
+    const spendingRow = buildBaseNeedRows({
+      ...defaultInputs,
+      selectedNeedBasis: "spending"
+    }).rows[0];
+
+    expect(incomeRow.selectedPvNeed).toBeCloseTo(incomeRow.incomePvNeed, 0);
+    expect(spendingRow.selectedPvNeed).toBeCloseTo(spendingRow.spendingPvNeed, 0);
   });
 
   it("applies the weighted pre-tax and post-tax retirement haircut", () => {
@@ -112,14 +140,14 @@ describe("life insurance model", () => {
     const pension = calculateSurvivorPensionValue({
       ...defaultInputs,
       pensionCurrentServiceYears: 4
-    }, 0);
+    }, 0, realDiscountRateFor(defaultInputs));
 
     expect(pension.serviceYears).toBe(4);
     expect(pension.grossAnnualPension).toBe(0);
     expect(pension.taxAdjustedValue).toBe(0);
   });
 
-  it("defers pre-55 survivor pension and discounts the fixed nominal PV with the nominal rate", () => {
+  it("defers pre-55 survivor pension and discounts the real PV with the real rate", () => {
     const inputs = {
       ...defaultInputs,
       insuredAge: 40,
@@ -133,11 +161,16 @@ describe("life insurance model", () => {
       pensionNormalRetirementAge: 65,
       pensionEarlyReductionRate: 0.05
     };
-    const pension = calculateSurvivorPensionValue(inputs, 0);
+    const realDiscountRate = realDiscountRateFor(inputs);
+    const pension = calculateSurvivorPensionValue(inputs, 0, realDiscountRate);
     const grossAnnualPension = 36000;
     const survivorAnnualPension = grossAnnualPension * 0.85 * 0.5;
-    const pvAtCommencement = presentValueAnnuity(survivorAnnualPension, 45, 0.05);
-    const pvAtDeath = pvAtCommencement / Math.pow(1.05, 15);
+    const pvAtCommencement = presentValueAnnuity(
+      survivorAnnualPension,
+      45,
+      realDiscountRate
+    );
+    const pvAtDeath = pvAtCommencement / Math.pow(1 + realDiscountRate, 15);
 
     expect(pension.commencementAge).toBe(55);
     expect(pension.defermentYears).toBe(15);
@@ -153,12 +186,12 @@ describe("life insurance model", () => {
       ...defaultInputs,
       insuredAge: 60,
       pensionCurrentServiceYears: 20
-    }, 0);
+    }, 0, realDiscountRateFor(defaultInputs));
     const age65 = calculateSurvivorPensionValue({
       ...defaultInputs,
       insuredAge: 65,
       pensionCurrentServiceYears: 20
-    }, 0);
+    }, 0, realDiscountRateFor(defaultInputs));
 
     expect(age60.defermentYears).toBe(0);
     expect(age60.earlyFactor).toBeCloseTo(0.75, 8);
@@ -171,7 +204,7 @@ describe("life insurance model", () => {
       spouseAge: 95,
       survivingSpouseLongevityAge: 95,
       pensionCurrentServiceYears: 20
-    }, 0);
+    }, 0, realDiscountRateFor(defaultInputs));
 
     expect(pension.paymentYears).toBe(0);
     expect(pension.presentValue).toBe(0);
@@ -198,15 +231,6 @@ describe("life insurance model", () => {
       0
     );
     expect(withPension.weightedFaceAmount).toBeLessThan(withoutPension.weightedFaceAmount);
-  });
-
-  it("interprets planned child birth offsets relative to today", () => {
-    expect(
-      childYearsUntilYoungest18({
-        ...defaultInputs,
-        children: [{ id: "planned", label: "Planned", birthYearOffset: 3 }]
-      })
-    ).toBe(21);
   });
 
   it("keeps employer coverage static then drops after the configured end year", () => {

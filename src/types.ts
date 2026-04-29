@@ -1,12 +1,5 @@
 export type NeedBasis = "income" | "spending";
 
-export type ChildInput = {
-  id: string;
-  label: string;
-  ageToday?: number;
-  birthYearOffset?: number;
-};
-
 export type TermLength = 10 | 15 | 20 | 30;
 
 export type CalculatorInputs = {
@@ -46,7 +39,6 @@ export type CalculatorInputs = {
   selectedNeedBasis: NeedBasis;
   coverageIncrement: number;
   maxCoveragePerTerm: number;
-  children: ChildInput[];
   costWeights: Record<TermLength, number>;
 };
 
@@ -61,7 +53,6 @@ export type YearlyRow = {
   year: number;
   incomePvNeed: number;
   spendingPvNeed: number;
-  dependentFloorNeed: number;
   selectedPvNeed: number;
   mortgagePrincipal: number;
   liquidAssets: number;
