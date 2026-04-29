@@ -178,7 +178,7 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
     ...chartRows.flatMap((row) => [
       row.incomePvNeed,
       row.spendingPvNeed,
-      row.grossNeed,
+      row.spendingNetNeedReal,
       row.totalCoverage
     ])
   );
@@ -244,7 +244,7 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
         ))}
         <path d={pathFor((row) => row.incomePvNeed)} fill="none" stroke="#2563eb" strokeWidth="3" strokeDasharray="7 6" />
         <path d={pathFor((row) => row.spendingPvNeed)} fill="none" stroke="#155e4c" strokeWidth="3" />
-        <path d={pathFor((row) => row.grossNeed)} fill="none" stroke="#b7791f" strokeWidth="3" />
+        <path d={pathFor((row) => row.spendingNetNeedReal)} fill="none" stroke="#b7791f" strokeWidth="3" />
         <path
           d={pathFor((row) => row.totalCoverage)}
           fill="none"
@@ -255,8 +255,8 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
       <div className="legend">
         <span><i className="blue" />Income PV</span>
         <span><i className="green" />Spending PV</span>
-        <span><i className="red" />Gross need</span>
-        <span><i className="black" />Total coverage</span>
+        <span><i className="red" />Need after assets/employer</span>
+        <span><i className="black" />Real coverage</span>
       </div>
     </div>
   );
@@ -322,15 +322,15 @@ export function App() {
       note: "In today's dollars"
     },
     {
-      label: "Capital gap",
-      value: money(Math.max(0, result.capitalSufficiency.worstGap)),
-      note: `Year ${result.capitalSufficiency.worstGapYear}`,
+      label: "Capital deficit",
+      value: money(Math.max(0, -result.capitalSufficiency.worstGap)),
+      note: `Worst gap ${money(result.capitalSufficiency.worstGap)} in year ${result.capitalSufficiency.worstGapYear}`,
       tone: "blue"
     },
     {
       label: "Recommended coverage",
       value: money(totalPersonalCoverage),
-      note: "Total initial face amount",
+      note: "Nominal face amount to purchase",
       tone: "success"
     },
     {
@@ -408,7 +408,7 @@ export function App() {
             <Toggle
               checked={inputs.includeEmployerCoverage}
               onChange={(checked) => setInput("includeEmployerCoverage", checked)}
-              label="Include static TPMG/employer coverage"
+              label="Include nominal TPMG/employer coverage"
             />
           </section>
 
@@ -497,7 +497,7 @@ export function App() {
               onChange={(v) => setInput("pensionHac", v)}
               prefix="$"
               step={10000}
-              help="Treated as a real-dollar value because the cap is assumed to rise with inflation."
+              help="Survivor pension is approximate and modeled as a fixed nominal annuity using the entered HAC value."
             />
             <RateField
               label="Survivor factor"
@@ -542,7 +542,7 @@ export function App() {
               onChange={(v) => setInput("employerCoverageAmount", v)}
               prefix="$"
               step={100000}
-              help="Static coverage amount included while employer coverage is enabled."
+              help="Nominal coverage amount deflated by death year for real-dollar sufficiency."
             />
             <Field
               label="Employer coverage end year"
@@ -574,7 +574,8 @@ export function App() {
               <span className="eyeline"><ShieldCheck size={16} /> Solver result</span>
               <h2>Recommended ladder</h2>
               <p>
-                Coverage matched against {inputs.selectedNeedBasis === "income" ? "income replacement" : "household spending"} need.
+                Recommended policies are solved against spending-basis capital sufficiency.
+                Income replacement is shown as an upper-bound sensitivity.
                 Real discount rate: {percentFormatter.format(result.realDiscountRate)}.
                 Real asset growth: {percentFormatter.format(result.realAssetGrowthRate)}.
                 Real retirement growth: {percentFormatter.format(result.realRetirementGrowthRate)}.
@@ -602,7 +603,7 @@ export function App() {
                 <thead>
                   <tr>
                     <th>Policy</th>
-                    <th>Face amount</th>
+                    <th>Nominal face amount</th>
                     <th>Type</th>
                     <th>Term</th>
                     <th>Years covered</th>
@@ -629,7 +630,7 @@ export function App() {
                   <tr>
                     <td>Total initial face amount</td>
                     <td>{money(totalPersonalCoverage)}</td>
-                    <td colSpan={3}>Max undercoverage, years 0-30</td>
+                    <td colSpan={3}>Max real undercoverage, years 0-30</td>
                     <td>{money(maxUndercoverage)}</td>
                   </tr>
                 </tfoot>
@@ -660,7 +661,7 @@ export function App() {
                     { value: "table", label: "Table" }
                   ]}
                 />
-                <span>Real (after inflation)</span>
+                <span>Real present-year dollars</span>
               </div>
             </div>
             <Chart rows={result.rows} />
@@ -669,7 +670,7 @@ export function App() {
           <section className="panel">
             <div className="panelHeader">
               <h2>Capital Sufficiency</h2>
-              <span>Spending demand view</span>
+              <span>Real present-year dollars</span>
             </div>
             <div className="capitalGrid">
               <article>
@@ -689,17 +690,17 @@ export function App() {
               <article>
                 <span>Year 0 supply</span>
                 <strong>{money(firstRow?.capitalSupply ?? 0)}</strong>
-                <small>Assets + pension + coverage</small>
+                <small>Assets + real pension + real coverage</small>
               </article>
               <article>
                 <span>Pension PV</span>
                 <strong>{money(firstRow?.pensionTaxAdjustedValue ?? 0)}</strong>
-                <small>Year 0 tax-adjusted survivor pension PV</small>
+                <small>Real tax-adjusted survivor pension PV</small>
               </article>
               <article>
                 <span>Year 0 demand</span>
                 <strong>{money(firstRow?.capitalDemand ?? 0)}</strong>
-                <small>Spending PV + mortgage</small>
+                <small>Spending PV + real mortgage payoff</small>
               </article>
             </div>
           </section>
@@ -722,7 +723,7 @@ export function App() {
                 <thead>
                   <tr>
                     <th>Year</th>
-                    <th>Gross need</th>
+                    <th>Net need</th>
                     <th>Pension PV</th>
                     <th>Employer</th>
                     <th>Personal ladder</th>
@@ -734,9 +735,9 @@ export function App() {
                   {reportRows.map((row) => (
                     <tr key={row.year}>
                       <td>{row.year}</td>
-                      <td>{money(row.grossNeed)}</td>
+                      <td>{money(row.spendingNetNeedReal)}</td>
                       <td>{money(row.pensionTaxAdjustedValue)}</td>
-                      <td>{money(row.employerCoverage)}</td>
+                      <td>{money(row.realEmployerCoverage)}</td>
                       <td>{money(row.personalLadderCoverage)}</td>
                       <td>{money(row.undercoverage)}</td>
                       <td>{money(row.overcoverage)}</td>

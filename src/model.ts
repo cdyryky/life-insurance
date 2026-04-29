@@ -14,6 +14,40 @@ export function fisherRealRate(nominalRate: number, inflationRate: number) {
   return (1 + nominalRate) / (1 + inflationRate) - 1;
 }
 
+export function inflationFactor(inflationRate: number, year: number) {
+  return Math.pow(1 + inflationRate, year);
+}
+
+export function realCoverageAtYear(
+  nominalAmount: number,
+  inflationRate: number,
+  year: number
+) {
+  return nominalAmount / inflationFactor(inflationRate, year);
+}
+
+export function exactNominalCoverageRequired(
+  realNeed: number,
+  inflationRate: number,
+  year: number
+) {
+  return Math.max(0, realNeed) * inflationFactor(inflationRate, year);
+}
+
+export function roundedNominalCoverageRequired(
+  realNeed: number,
+  inflationRate: number,
+  year: number,
+  increment: number
+) {
+  const safeIncrement = Math.max(1, increment);
+  return (
+    Math.ceil(
+      exactNominalCoverageRequired(realNeed, inflationRate, year) / safeIncrement
+    ) * safeIncrement
+  );
+}
+
 export function presentValueAnnuity(
   annualAmountToday: number,
   years: number,
@@ -138,13 +172,11 @@ export function accumulateRealAssets(
   startingBalance: number,
   annualContribution: number,
   realGrowthRate: number,
-  throughYear: number,
-  inflationRate: number
+  throughYear: number
 ) {
   let balance = Math.max(0, startingBalance);
   for (let year = 0; year < throughYear; year += 1) {
-    const realContribution = annualContribution / Math.pow(1 + inflationRate, year);
-    balance = balance * (1 + realGrowthRate) + Math.max(0, realContribution);
+    balance = balance * (1 + realGrowthRate) + Math.max(0, annualContribution);
   }
   return Math.max(0, balance);
 }
@@ -210,27 +242,30 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
         postDropYears,
         realDiscountRate
       ) / Math.pow(1 + realDiscountRate, preDropYears);
-    const selectedPvNeed =
+    const selectedDisplayNeed =
       inputs.selectedNeedBasis === "income" ? incomePvNeed : spendingPvNeed;
-    const mortgagePrincipal = remainingMortgagePrincipal(
+    const nominalMortgagePrincipal = remainingMortgagePrincipal(
       inputs.mortgageBalance,
       inputs.mortgageAnnualRate,
       inputs.mortgageYearsRemaining,
+      year
+    );
+    const realMortgagePrincipal = realCoverageAtYear(
+      nominalMortgagePrincipal,
+      inputs.inflationRate,
       year
     );
     const liquidAssets = accumulateRealAssets(
       inputs.currentLiquidAssets,
       inputs.annualNonRetirementSavings,
       realAssetGrowthRate,
-      year,
-      inputs.inflationRate
+      year
     );
     const retirementAssetsBeforeHaircut = accumulateRealAssets(
       inputs.currentRetirementAssets,
       inputs.annualRetirementSavings,
       realRetirementGrowthRate,
-      year,
-      inputs.inflationRate
+      year
     );
     const retirementAssetsAfterHaircut =
       retirementAssetsBeforeHaircut * (1 - retirementHaircut);
@@ -239,26 +274,55 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       year,
       inputs.nominalDiscountRate
     );
-    const accessibleAssets =
-      liquidAssets + retirementAssetsAfterHaircut + survivorPension.taxAdjustedValue;
-    const grossNeed = Math.max(
-      0,
-      selectedPvNeed +
-        (inputs.selectedNeedBasis === "spending" ? mortgagePrincipal : 0) -
-        accessibleAssets
+    const pensionTaxAdjustedValueNominal = survivorPension.taxAdjustedValue;
+    const pensionTaxAdjustedValue = realCoverageAtYear(
+      pensionTaxAdjustedValueNominal,
+      inputs.inflationRate,
+      year
     );
-    const employerCoverage =
+    const accessibleAssets =
+      liquidAssets + retirementAssetsAfterHaircut + pensionTaxAdjustedValue;
+    const nominalEmployerCoverage =
       inputs.includeEmployerCoverage && year <= inputs.employerCoverageEndYear
         ? inputs.employerCoverageAmount
         : 0;
-    const selectedNetNeed = Math.max(0, grossNeed - employerCoverage);
+    const realEmployerCoverage = realCoverageAtYear(
+      nominalEmployerCoverage,
+      inputs.inflationRate,
+      year
+    );
+    const spendingDemandReal = spendingPvNeed + realMortgagePrincipal;
+    const spendingNeedAfterAssetsReal = Math.max(
+      0,
+      spendingDemandReal - accessibleAssets
+    );
+    const spendingNetNeedReal = Math.max(
+      0,
+      spendingNeedAfterAssetsReal - realEmployerCoverage
+    );
+    const exactNominalRequired = exactNominalCoverageRequired(
+      spendingNetNeedReal,
+      inputs.inflationRate,
+      year
+    );
+    const nominalRequiredCoverage = roundedNominalCoverageRequired(
+      spendingNetNeedReal,
+      inputs.inflationRate,
+      year,
+      inputs.coverageIncrement
+    );
+    const capitalSupply = accessibleAssets + realEmployerCoverage;
+    const capitalDemand = spendingDemandReal;
+    const capitalGap = capitalSupply - capitalDemand;
 
     rows.push({
       year,
       incomePvNeed,
       spendingPvNeed,
-      selectedPvNeed,
-      mortgagePrincipal,
+      selectedDisplayNeed,
+      incomeSensitivityNeed: incomePvNeed,
+      nominalMortgagePrincipal,
+      realMortgagePrincipal,
       liquidAssets,
       retirementAssetsBeforeHaircut,
       retirementAssetsAfterHaircut,
@@ -271,18 +335,25 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       pensionPaymentYears: survivorPension.paymentYears,
       pensionEarlyFactor: survivorPension.earlyFactor,
       pensionPresentValue: survivorPension.presentValue,
-      pensionTaxAdjustedValue: survivorPension.taxAdjustedValue,
+      pensionTaxAdjustedValueNominal,
+      pensionTaxAdjustedValue,
       accessibleAssets,
-      grossNeed,
-      employerCoverage,
-      selectedNetNeed,
+      spendingDemandReal,
+      spendingNeedAfterAssetsReal,
+      spendingNetNeedReal,
+      exactNominalCoverageRequired: exactNominalRequired,
+      nominalRequiredCoverage,
+      realEmployerCoverage,
+      nominalPersonalCoverage: 0,
+      realPersonalCoverage: 0,
       personalLadderCoverage: 0,
-      totalCoverage: employerCoverage,
-      undercoverage: 0,
+      totalCoverage: realEmployerCoverage,
+      undercoverage: spendingNetNeedReal,
       overcoverage: 0,
-      capitalSupply: accessibleAssets + employerCoverage,
-      capitalDemand: spendingPvNeed + mortgagePrincipal,
-      capitalGap: accessibleAssets + employerCoverage - mortgagePrincipal - spendingPvNeed
+      capitalSupply,
+      capitalDemand,
+      capitalGap,
+      capitalDeficit: Math.max(0, -capitalGap)
     });
   }
 
@@ -322,7 +393,7 @@ export function solvePolicyLadder(
   const cap = Math.max(increment, inputs.maxCoveragePerTerm);
   const requirements = rows
     .filter((row) => row.year < 30)
-    .map((row) => Math.ceil(row.selectedNetNeed / increment) * increment);
+    .map((row) => row.nominalRequiredCoverage);
 
   const maxNeed = Math.max(0, ...requirements);
   let bestAmounts: Record<TermLength, number> | undefined;
@@ -332,9 +403,9 @@ export function solvePolicyLadder(
 
   const maxByTerm: Record<TermLength, number> = {
     10: Math.ceil(Math.max(0, ...requirements.slice(0, 10)) / increment),
-    15: Math.ceil(Math.max(0, ...requirements.slice(10, 15)) / increment),
-    20: Math.ceil(Math.max(0, ...requirements.slice(15, 20)) / increment),
-    30: Math.ceil(Math.max(0, ...requirements.slice(20, 30)) / increment)
+    15: Math.ceil(Math.max(0, ...requirements.slice(0, 15)) / increment),
+    20: Math.ceil(Math.max(0, ...requirements.slice(0, 20)) / increment),
+    30: Math.ceil(Math.max(0, ...requirements.slice(0, 30)) / increment)
   };
 
   for (let u30 = 0; u30 <= Math.max(maxByTerm[30], 0); u30 += 1) {
@@ -418,21 +489,29 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
   const warnings: SolverWarning[] = [];
 
   const projectedRows = rows.map((row) => {
-    const personalLadderCoverage =
+    const nominalPersonalCoverage =
       row.year < 30 ? coverageAtYear(solved.amounts, row.year) : 0;
-    const totalCoverage = row.employerCoverage + personalLadderCoverage;
+    const realPersonalCoverage = realCoverageAtYear(
+      nominalPersonalCoverage,
+      inputs.inflationRate,
+      row.year
+    );
+    const totalCoverage = row.realEmployerCoverage + realPersonalCoverage;
+    const capitalDemand = row.spendingDemandReal;
     const capitalSupply = row.accessibleAssets + totalCoverage;
-    const capitalDemand = row.spendingPvNeed + row.mortgagePrincipal;
-    const capitalGap = capitalSupply - row.mortgagePrincipal - row.spendingPvNeed;
+    const capitalGap = capitalSupply - capitalDemand;
     return {
       ...row,
-      personalLadderCoverage,
+      nominalPersonalCoverage,
+      realPersonalCoverage,
+      personalLadderCoverage: realPersonalCoverage,
       totalCoverage,
-      undercoverage: Math.max(0, row.grossNeed - totalCoverage),
-      overcoverage: Math.max(0, totalCoverage - row.grossNeed),
+      undercoverage: Math.max(0, row.spendingNetNeedReal - realPersonalCoverage),
+      overcoverage: Math.max(0, realPersonalCoverage - row.spendingNetNeedReal),
       capitalSupply,
       capitalDemand,
-      capitalGap
+      capitalGap,
+      capitalDeficit: Math.max(0, -capitalGap)
     };
   });
 
@@ -442,11 +521,11 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
   );
   const firstDeficit = sufficiencyRows.find((row) => row.capitalGap < 0);
 
-  if (projectedRows.some((row) => row.year >= 30 && row.selectedNetNeed > 0)) {
+  if (projectedRows.some((row) => row.year >= 30 && row.spendingNetNeedReal > 0)) {
     warnings.push({
       kind: "residual-after-30",
       message:
-        "Need remains after year 30. The ladder solves the available 10/15/20/30-year term window and flags the residual instead of treating it as a failure."
+        "Spending-basis real need remains after year 30. Available term products expire by year 30, so review permanent coverage, savings, or assumptions before relying on this ladder."
     });
   }
 

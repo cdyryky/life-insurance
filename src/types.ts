@@ -55,8 +55,10 @@ export type YearlyRow = {
   year: number;
   incomePvNeed: number;
   spendingPvNeed: number;
-  selectedPvNeed: number;
-  mortgagePrincipal: number;
+  selectedDisplayNeed: number;
+  incomeSensitivityNeed: number;
+  nominalMortgagePrincipal: number;
+  realMortgagePrincipal: number;
   liquidAssets: number;
   retirementAssetsBeforeHaircut: number;
   retirementAssetsAfterHaircut: number;
@@ -69,11 +71,17 @@ export type YearlyRow = {
   pensionPaymentYears: number;
   pensionEarlyFactor: number;
   pensionPresentValue: number;
+  pensionTaxAdjustedValueNominal: number;
   pensionTaxAdjustedValue: number;
   accessibleAssets: number;
-  grossNeed: number;
-  employerCoverage: number;
-  selectedNetNeed: number;
+  spendingDemandReal: number;
+  spendingNeedAfterAssetsReal: number;
+  spendingNetNeedReal: number;
+  exactNominalCoverageRequired: number;
+  nominalRequiredCoverage: number;
+  realEmployerCoverage: number;
+  nominalPersonalCoverage: number;
+  realPersonalCoverage: number;
   personalLadderCoverage: number;
   totalCoverage: number;
   undercoverage: number;
@@ -81,6 +89,7 @@ export type YearlyRow = {
   capitalSupply: number;
   capitalDemand: number;
   capitalGap: number;
+  capitalDeficit: number;
 };
 
 export type CapitalSufficiency = {
