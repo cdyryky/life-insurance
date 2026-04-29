@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultInputs } from "./defaults";
+import { activeYearsLabel } from "./format";
 import {
   buildBaseNeedRows,
   calculateLadder,
@@ -37,7 +38,7 @@ function testRow(year: number, nominalRequiredCoverage: number): YearlyRow {
     pensionDefermentYears: 0,
     pensionPaymentYears: 0,
     pensionEarlyFactor: 0,
-    pensionPresentValue: 0,
+    pensionPresentValueNominal: 0,
     pensionTaxAdjustedValueNominal: 0,
     pensionTaxAdjustedValue: 0,
     accessibleAssets: 0,
@@ -61,6 +62,11 @@ function testRow(year: number, nominalRequiredCoverage: number): YearlyRow {
 }
 
 describe("life insurance model", () => {
+  it("formats policy active years as full zero-based coverage windows", () => {
+    expect(activeYearsLabel(10)).toBe("0-9");
+    expect(activeYearsLabel(30)).toBe("0-29");
+  });
+
   it("calculates the Fisher real discount rate", () => {
     expect(fisherRealRate(0.05, 0.025)).toBeCloseTo(0.02439024, 6);
   });

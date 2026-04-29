@@ -10,6 +10,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { defaultInputs } from "./defaults";
+import { activeYearsLabel } from "./format";
 import { calculateLadder } from "./model";
 import type {
   CalculatorInputs,
@@ -587,7 +588,10 @@ export function App() {
                 <article key={policy.termYears}>
                   <span>{policy.termYears}-year</span>
                   <strong>{money(policy.amount)}</strong>
-                  <small>Weight {policy.costWeight.toFixed(1)}</small>
+                  <small>
+                    Years {activeYearsLabel(policy.termYears)} · Weight{" "}
+                    {policy.costWeight.toFixed(1)}
+                  </small>
                 </article>
               ))}
             </div>
@@ -617,11 +621,7 @@ export function App() {
                       <td>{money(policy.amount)}</td>
                       <td>Level Term</td>
                       <td>{policy.termYears} years</td>
-                      <td>
-                        {index === 0
-                          ? `1 - ${policy.termYears}`
-                          : `${result.policies[index - 1].termYears + 1} - ${policy.termYears}`}
-                      </td>
+                      <td>{activeYearsLabel(policy.termYears)}</td>
                       <td>{policy.costWeight.toFixed(1)}</td>
                     </tr>
                   ))}
@@ -738,7 +738,7 @@ export function App() {
                       <td>{money(row.spendingNetNeedReal)}</td>
                       <td>{money(row.pensionTaxAdjustedValue)}</td>
                       <td>{money(row.realEmployerCoverage)}</td>
-                      <td>{money(row.personalLadderCoverage)}</td>
+                      <td>{money(row.realPersonalCoverage)}</td>
                       <td>{money(row.undercoverage)}</td>
                       <td>{money(row.overcoverage)}</td>
                     </tr>

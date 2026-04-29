@@ -334,7 +334,7 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       pensionDefermentYears: survivorPension.defermentYears,
       pensionPaymentYears: survivorPension.paymentYears,
       pensionEarlyFactor: survivorPension.earlyFactor,
-      pensionPresentValue: survivorPension.presentValue,
+      pensionPresentValueNominal: survivorPension.presentValue,
       pensionTaxAdjustedValueNominal,
       pensionTaxAdjustedValue,
       accessibleAssets,

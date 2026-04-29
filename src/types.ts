@@ -70,7 +70,7 @@ export type YearlyRow = {
   pensionDefermentYears: number;
   pensionPaymentYears: number;
   pensionEarlyFactor: number;
-  pensionPresentValue: number;
+  pensionPresentValueNominal: number;
   pensionTaxAdjustedValueNominal: number;
   pensionTaxAdjustedValue: number;
   accessibleAssets: number;
@@ -82,6 +82,7 @@ export type YearlyRow = {
   realEmployerCoverage: number;
   nominalPersonalCoverage: number;
   realPersonalCoverage: number;
+  /** @deprecated Legacy alias for realPersonalCoverage. Prefer realPersonalCoverage. */
   personalLadderCoverage: number;
   totalCoverage: number;
   undercoverage: number;
