@@ -8,6 +8,8 @@ export const defaultInputs: CalculatorInputs = {
   annualIncome: 600000,
   monthlyHouseholdNeedExcludingMortgage: 12000,
   survivingSpouseIncome: 0,
+  dependentDropOffYear: 18,
+  dependentDropOffAmount: 48000,
   currentLiquidAssets: 100000,
   annualNonRetirementSavings: 20000,
   nominalAssetGrowthRate: 0.05,

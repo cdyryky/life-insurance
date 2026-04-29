@@ -41,7 +41,7 @@ export function pensionAccrualPercent(serviceYears: number) {
 export function calculateSurvivorPensionValue(
   inputs: CalculatorInputs,
   year: number,
-  realDiscountRate: number
+  nominalDiscountRate: number
 ) {
   const serviceYears = Math.max(0, inputs.pensionCurrentServiceYears + year);
   const participantAgeAtDeath = inputs.insuredAge + year;
@@ -87,10 +87,10 @@ export function calculateSurvivorPensionValue(
   const pvAtCommencement = presentValueAnnuity(
     survivorAnnualPension,
     paymentYears,
-    realDiscountRate
+    nominalDiscountRate
   );
   const pvAtDeath =
-    pvAtCommencement / Math.pow(1 + realDiscountRate, defermentYears);
+    pvAtCommencement / Math.pow(1 + nominalDiscountRate, defermentYears);
   const taxAdjustedValue = pvAtDeath * inputs.pensionTaxAdjustmentFactor;
 
   return {
@@ -192,11 +192,24 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       remainingIncomeYears,
       realDiscountRate
     );
-    const spendingPvNeed = presentValueAnnuity(
-      annualSpendingDeficit,
-      remainingSpendingYears,
-      realDiscountRate
+    const yearsUntilDrop = Math.max(0, inputs.dependentDropOffYear - year);
+    const preDropYears = Math.min(remainingSpendingYears, yearsUntilDrop);
+    const postDropYears = Math.max(0, remainingSpendingYears - preDropYears);
+    const postDropAnnualSpendingDeficit = Math.max(
+      0,
+      annualSpendingDeficit - inputs.dependentDropOffAmount
     );
+    const spendingPvNeed =
+      presentValueAnnuity(
+        annualSpendingDeficit,
+        preDropYears,
+        realDiscountRate
+      ) +
+      presentValueAnnuity(
+        postDropAnnualSpendingDeficit,
+        postDropYears,
+        realDiscountRate
+      ) / Math.pow(1 + realDiscountRate, preDropYears);
     const selectedPvNeed =
       inputs.selectedNeedBasis === "income" ? incomePvNeed : spendingPvNeed;
     const mortgagePrincipal = remainingMortgagePrincipal(
@@ -224,11 +237,16 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
     const survivorPension = calculateSurvivorPensionValue(
       inputs,
       year,
-      realDiscountRate
+      inputs.nominalDiscountRate
     );
     const accessibleAssets =
       liquidAssets + retirementAssetsAfterHaircut + survivorPension.taxAdjustedValue;
-    const grossNeed = Math.max(0, selectedPvNeed + mortgagePrincipal - accessibleAssets);
+    const grossNeed = Math.max(
+      0,
+      selectedPvNeed +
+        (inputs.selectedNeedBasis === "spending" ? mortgagePrincipal : 0) -
+        accessibleAssets
+    );
     const employerCoverage =
       inputs.includeEmployerCoverage && year <= inputs.employerCoverageEndYear
         ? inputs.employerCoverageAmount

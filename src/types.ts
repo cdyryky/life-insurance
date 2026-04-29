@@ -10,6 +10,8 @@ export type CalculatorInputs = {
   annualIncome: number;
   monthlyHouseholdNeedExcludingMortgage: number;
   survivingSpouseIncome: number;
+  dependentDropOffYear: number;
+  dependentDropOffAmount: number;
   currentLiquidAssets: number;
   annualNonRetirementSavings: number;
   nominalAssetGrowthRate: number;

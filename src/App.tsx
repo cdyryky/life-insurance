@@ -433,6 +433,20 @@ export function App() {
               help="Exclude mortgage principal and interest. Property tax and insurance can remain."
             />
             <Field label="Surviving spouse income" value={inputs.survivingSpouseIncome} onChange={(v) => setInput("survivingSpouseIncome", v)} prefix="$" step={10000} />
+            <Field
+              label="Dependent drop-off year"
+              value={inputs.dependentDropOffYear}
+              onChange={(v) => setInput("dependentDropOffYear", v)}
+              help="Model year when dependent-related spending drops."
+            />
+            <Field
+              label="Dependent drop-off amount"
+              value={inputs.dependentDropOffAmount}
+              onChange={(v) => setInput("dependentDropOffAmount", v)}
+              prefix="$"
+              step={5000}
+              help="Annual reduction to spending need after the drop-off year."
+            />
             <RateField label="Inflation rate" value={inputs.inflationRate} onChange={(v) => setInput("inflationRate", v)} />
             <RateField label="Nominal discount rate" value={inputs.nominalDiscountRate} onChange={(v) => setInput("nominalDiscountRate", v)} help="Editable field initialized from the asset growth default." />
           </section>
