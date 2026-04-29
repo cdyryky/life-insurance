@@ -471,17 +471,71 @@ export function App() {
           </section>
 
           <section className="panel">
-            <SectionTitle index={4}>Mortgage & Employer</SectionTitle>
+            <SectionTitle index={4}>Survivor Pension</SectionTitle>
+            <Toggle
+              checked={inputs.includeSurvivorPension}
+              onChange={(checked) => setInput("includeSurvivorPension", checked)}
+              label="Include survivor pension capital offset"
+            />
+            <Field
+              label="Current service years"
+              value={inputs.pensionCurrentServiceYears}
+              onChange={(v) => setInput("pensionCurrentServiceYears", v)}
+              step={0.25}
+              help="Defaults to 0 for a July 2026 model start."
+            />
+            <Field
+              label="HAC / compensation cap"
+              value={inputs.pensionHac}
+              onChange={(v) => setInput("pensionHac", v)}
+              prefix="$"
+              step={10000}
+              help="Treated as a real-dollar value because the cap is assumed to rise with inflation."
+            />
+            <RateField
+              label="Survivor factor"
+              value={inputs.pensionSurvivorFactor}
+              onChange={(v) => setInput("pensionSurvivorFactor", Math.min(1, Math.max(0, v)))}
+            />
+            <RateField
+              label="Tax adjustment factor"
+              value={inputs.pensionTaxAdjustmentFactor}
+              onChange={(v) => setInput("pensionTaxAdjustmentFactor", Math.min(1, Math.max(0, v)))}
+            />
+            <Field
+              label="Vesting years"
+              value={inputs.pensionVestingYears}
+              onChange={(v) => setInput("pensionVestingYears", v)}
+            />
+            <Field
+              label="Normal retirement age"
+              value={inputs.pensionNormalRetirementAge}
+              onChange={(v) => setInput("pensionNormalRetirementAge", v)}
+            />
+            <Field
+              label="Minimum commencement age"
+              value={inputs.pensionMinimumCommencementAge}
+              onChange={(v) => setInput("pensionMinimumCommencementAge", v)}
+            />
+            <RateField
+              label="Early reduction rate"
+              value={inputs.pensionEarlyReductionRate}
+              onChange={(v) => setInput("pensionEarlyReductionRate", Math.min(1, Math.max(0, v)))}
+            />
+          </section>
+
+          <section className="panel">
+            <SectionTitle index={5}>Mortgage & Employer</SectionTitle>
             <Field label="Mortgage balance" value={inputs.mortgageBalance} onChange={(v) => setInput("mortgageBalance", v)} prefix="$" step={50000} />
             <RateField label="Mortgage rate" value={inputs.mortgageAnnualRate} onChange={(v) => setInput("mortgageAnnualRate", v)} />
             <Field label="Mortgage years remaining" value={inputs.mortgageYearsRemaining} onChange={(v) => setInput("mortgageYearsRemaining", v)} />
             <Field
-              label="Employer salary multiplier"
-              value={inputs.employerSalaryMultiplier}
-              onChange={(v) => setInput("employerSalaryMultiplier", v)}
-              suffix="x"
-              step={0.1}
-              help="Static multiplier of current base salary; future income scaling is out of scope."
+              label="TPMG/employer coverage"
+              value={inputs.employerCoverageAmount}
+              onChange={(v) => setInput("employerCoverageAmount", v)}
+              prefix="$"
+              step={100000}
+              help="Static coverage amount included while employer coverage is enabled."
             />
             <Field
               label="Employer coverage end year"
@@ -492,7 +546,7 @@ export function App() {
           </section>
 
           <section className="panel">
-            <SectionTitle index={5}>Children</SectionTitle>
+            <SectionTitle index={6}>Children</SectionTitle>
             {inputs.children.map((child, index) => (
               <div className="childRow" key={child.id}>
                 <strong>{child.label}</strong>
@@ -519,7 +573,7 @@ export function App() {
           </section>
 
           <section className="panel">
-            <SectionTitle index={6}>Premium Cost Weights</SectionTitle>
+            <SectionTitle index={7}>Premium Cost Weights</SectionTitle>
             {TERMS.map((term) => (
               <Field
                 key={term}
@@ -655,7 +709,12 @@ export function App() {
               <article>
                 <span>Year 0 supply</span>
                 <strong>{money(firstRow?.capitalSupply ?? 0)}</strong>
-                <small>Assets + coverage</small>
+                <small>Assets + pension + coverage</small>
+              </article>
+              <article>
+                <span>Pension PV</span>
+                <strong>{money(firstRow?.pensionTaxAdjustedValue ?? 0)}</strong>
+                <small>Year 0 tax-adjusted survivor pension PV</small>
               </article>
               <article>
                 <span>Year 0 demand</span>
@@ -675,6 +734,7 @@ export function App() {
             <div className="reportMeta">
               <span>Selected target: {inputs.selectedNeedBasis}</span>
               <span>Employer coverage: {inputs.includeEmployerCoverage ? "included" : "excluded"}</span>
+              <span>Survivor pension: {inputs.includeSurvivorPension ? "included" : "excluded"}</span>
               <span>Weighted face amount: {money(result.weightedFaceAmount)}</span>
             </div>
             <div className="tableWrap">
@@ -683,6 +743,7 @@ export function App() {
                   <tr>
                     <th>Year</th>
                     <th>Gross need</th>
+                    <th>Pension PV</th>
                     <th>Employer</th>
                     <th>Personal ladder</th>
                     <th>Under</th>
@@ -694,6 +755,7 @@ export function App() {
                     <tr key={row.year}>
                       <td>{row.year}</td>
                       <td>{money(row.grossNeed)}</td>
+                      <td>{money(row.pensionTaxAdjustedValue)}</td>
                       <td>{money(row.employerCoverage)}</td>
                       <td>{money(row.personalLadderCoverage)}</td>
                       <td>{money(row.undercoverage)}</td>

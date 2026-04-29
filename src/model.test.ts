@@ -3,9 +3,11 @@ import { defaultInputs } from "./defaults";
 import {
   buildBaseNeedRows,
   calculateLadder,
+  calculateSurvivorPensionValue,
   childYearsUntilYoungest18,
   effectiveRetirementTaxHaircut,
   fisherRealRate,
+  pensionAccrualPercent,
   presentValueAnnuity,
   remainingMortgagePrincipal
 } from "./model";
@@ -97,6 +99,107 @@ describe("life insurance model", () => {
     expect(withOffset).toBeLessThan(noOffset);
   });
 
+  it("calculates pension accrual percentages by service year", () => {
+    expect(pensionAccrualPercent(0)).toBe(0);
+    expect(pensionAccrualPercent(5)).toBeCloseTo(0.1, 8);
+    expect(pensionAccrualPercent(10)).toBeCloseTo(0.2, 8);
+    expect(pensionAccrualPercent(20)).toBeCloseTo(0.4, 8);
+    expect(pensionAccrualPercent(25)).toBeCloseTo(0.45, 8);
+    expect(pensionAccrualPercent(30)).toBeCloseTo(0.5, 8);
+  });
+
+  it("zeros survivor pension value before vesting", () => {
+    const pension = calculateSurvivorPensionValue({
+      ...defaultInputs,
+      pensionCurrentServiceYears: 4
+    }, 0);
+
+    expect(pension.serviceYears).toBe(4);
+    expect(pension.grossAnnualPension).toBe(0);
+    expect(pension.taxAdjustedValue).toBe(0);
+  });
+
+  it("defers pre-55 survivor pension and discounts the fixed nominal PV with the nominal rate", () => {
+    const inputs = {
+      ...defaultInputs,
+      insuredAge: 40,
+      spouseAge: 35,
+      pensionCurrentServiceYears: 5,
+      nominalDiscountRate: 0.05,
+      pensionHac: 360000,
+      pensionSurvivorFactor: 0.85,
+      pensionTaxAdjustmentFactor: 0.85,
+      pensionMinimumCommencementAge: 55,
+      pensionNormalRetirementAge: 65,
+      pensionEarlyReductionRate: 0.05
+    };
+    const pension = calculateSurvivorPensionValue(inputs, 0);
+    const grossAnnualPension = 36000;
+    const survivorAnnualPension = grossAnnualPension * 0.85 * 0.5;
+    const pvAtCommencement = presentValueAnnuity(survivorAnnualPension, 45, 0.05);
+    const pvAtDeath = pvAtCommencement / Math.pow(1.05, 15);
+
+    expect(pension.commencementAge).toBe(55);
+    expect(pension.defermentYears).toBe(15);
+    expect(pension.paymentYears).toBe(45);
+    expect(pension.earlyFactor).toBeCloseTo(0.5, 8);
+    expect(pension.survivorAnnualPension).toBeCloseTo(survivorAnnualPension, 0);
+    expect(pension.presentValue).toBeCloseTo(pvAtDeath, 0);
+    expect(pension.taxAdjustedValue).toBeCloseTo(pvAtDeath * 0.85, 0);
+  });
+
+  it("applies early reduction between 55 and 65 and no reduction at or after 65", () => {
+    const age60 = calculateSurvivorPensionValue({
+      ...defaultInputs,
+      insuredAge: 60,
+      pensionCurrentServiceYears: 20
+    }, 0);
+    const age65 = calculateSurvivorPensionValue({
+      ...defaultInputs,
+      insuredAge: 65,
+      pensionCurrentServiceYears: 20
+    }, 0);
+
+    expect(age60.defermentYears).toBe(0);
+    expect(age60.earlyFactor).toBeCloseTo(0.75, 8);
+    expect(age65.earlyFactor).toBe(1);
+  });
+
+  it("returns zero pension PV when the spouse has no payment horizon", () => {
+    const pension = calculateSurvivorPensionValue({
+      ...defaultInputs,
+      spouseAge: 95,
+      survivingSpouseLongevityAge: 95,
+      pensionCurrentServiceYears: 20
+    }, 0);
+
+    expect(pension.paymentYears).toBe(0);
+    expect(pension.presentValue).toBe(0);
+    expect(pension.taxAdjustedValue).toBe(0);
+  });
+
+  it("survivor pension lowers need and contributes to capital supply", () => {
+    const withoutPension = calculateLadder({
+      ...defaultInputs,
+      includeSurvivorPension: false,
+      pensionCurrentServiceYears: 20
+    });
+    const withPension = calculateLadder({
+      ...defaultInputs,
+      includeSurvivorPension: true,
+      pensionCurrentServiceYears: 20
+    });
+
+    expect(withPension.rows[0].pensionTaxAdjustedValue).toBeGreaterThan(0);
+    expect(withPension.rows[0].grossNeed).toBeLessThan(withoutPension.rows[0].grossNeed);
+    expect(withPension.rows[0].accessibleAssets).toBeCloseTo(
+      withoutPension.rows[0].accessibleAssets +
+        withPension.rows[0].pensionTaxAdjustedValue,
+      0
+    );
+    expect(withPension.weightedFaceAmount).toBeLessThan(withoutPension.weightedFaceAmount);
+  });
+
   it("interprets planned child birth offsets relative to today", () => {
     expect(
       childYearsUntilYoungest18({
@@ -110,7 +213,7 @@ describe("life insurance model", () => {
     const rows = buildBaseNeedRows({
       ...defaultInputs,
       annualIncome: 100000,
-      employerSalaryMultiplier: 3,
+      employerCoverageAmount: 300000,
       employerCoverageEndYear: 5,
       includeEmployerCoverage: true
     }).rows;

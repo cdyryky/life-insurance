@@ -475,6 +475,10 @@ h1 {
   transform: translateX(16px);
 }
 
+.panel > .toggle {
+  margin-bottom: 12px;
+}
+
 .childRow {
   padding: 12px;
   background: #f8fafc;
@@ -592,7 +596,7 @@ h1 {
 
 .capitalGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -606,7 +610,7 @@ h1 {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 820px;
 }
 
 th,

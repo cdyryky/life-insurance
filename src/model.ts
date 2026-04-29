@@ -29,6 +29,82 @@ export function presentValueAnnuity(
   );
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function pensionAccrualPercent(serviceYears: number) {
+  const years = Math.max(0, serviceYears);
+  return 0.02 * Math.min(years, 20) + 0.01 * Math.max(years - 20, 0);
+}
+
+export function calculateSurvivorPensionValue(
+  inputs: CalculatorInputs,
+  year: number
+) {
+  const serviceYears = Math.max(0, inputs.pensionCurrentServiceYears + year);
+  const participantAgeAtDeath = inputs.insuredAge + year;
+  const spouseAgeAtDeath = inputs.spouseAge + year;
+  const commencementAge = Math.max(
+    participantAgeAtDeath,
+    inputs.pensionMinimumCommencementAge
+  );
+  const defermentYears = Math.max(
+    0,
+    inputs.pensionMinimumCommencementAge - participantAgeAtDeath
+  );
+  const spouseAgeAtCommencement = spouseAgeAtDeath + defermentYears;
+  const paymentYears = Math.max(
+    0,
+    inputs.survivingSpouseLongevityAge - spouseAgeAtCommencement
+  );
+  const earlyFactor = clamp(
+    1 -
+      inputs.pensionEarlyReductionRate *
+        Math.max(inputs.pensionNormalRetirementAge - commencementAge, 0),
+    0,
+    1
+  );
+
+  if (!inputs.includeSurvivorPension || serviceYears < inputs.pensionVestingYears) {
+    return {
+      serviceYears,
+      grossAnnualPension: 0,
+      survivorAnnualPension: 0,
+      commencementAge,
+      defermentYears,
+      paymentYears,
+      earlyFactor,
+      presentValue: 0,
+      taxAdjustedValue: 0
+    };
+  }
+
+  const grossAnnualPension = pensionAccrualPercent(serviceYears) * inputs.pensionHac;
+  const survivorAnnualPension =
+    grossAnnualPension * inputs.pensionSurvivorFactor * earlyFactor;
+  const pvAtCommencement = presentValueAnnuity(
+    survivorAnnualPension,
+    paymentYears,
+    inputs.nominalDiscountRate
+  );
+  const pvAtDeath =
+    pvAtCommencement / Math.pow(1 + inputs.nominalDiscountRate, defermentYears);
+  const taxAdjustedValue = pvAtDeath * inputs.pensionTaxAdjustmentFactor;
+
+  return {
+    serviceYears,
+    grossAnnualPension,
+    survivorAnnualPension,
+    commencementAge,
+    defermentYears,
+    paymentYears,
+    earlyFactor,
+    presentValue: pvAtDeath,
+    taxAdjustedValue
+  };
+}
+
 export function remainingMortgagePrincipal(
   balance: number,
   annualRate: number,
@@ -112,8 +188,6 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
     inputs.monthlyHouseholdNeedExcludingMortgage * 12 -
       inputs.survivingSpouseIncome
   );
-  const employerCoverageAmount = inputs.annualIncome * inputs.employerSalaryMultiplier;
-
   const rows: YearlyRow[] = [];
 
   for (let year = 0; year <= HORIZON_YEARS; year += 1) {
@@ -163,11 +237,13 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
     );
     const retirementAssetsAfterHaircut =
       retirementAssetsBeforeHaircut * (1 - retirementHaircut);
-    const accessibleAssets = liquidAssets + retirementAssetsAfterHaircut;
+    const survivorPension = calculateSurvivorPensionValue(inputs, year);
+    const accessibleAssets =
+      liquidAssets + retirementAssetsAfterHaircut + survivorPension.taxAdjustedValue;
     const grossNeed = Math.max(0, selectedPvNeed + mortgagePrincipal - accessibleAssets);
     const employerCoverage =
       inputs.includeEmployerCoverage && year <= inputs.employerCoverageEndYear
-        ? employerCoverageAmount
+        ? inputs.employerCoverageAmount
         : 0;
     const selectedNetNeed = Math.max(0, grossNeed - employerCoverage);
 
@@ -182,6 +258,15 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       retirementAssetsBeforeHaircut,
       retirementAssetsAfterHaircut,
       effectiveRetirementTaxHaircut: retirementHaircut,
+      pensionServiceYears: survivorPension.serviceYears,
+      pensionGrossAnnualPension: survivorPension.grossAnnualPension,
+      pensionSurvivorAnnualPension: survivorPension.survivorAnnualPension,
+      pensionCommencementAge: survivorPension.commencementAge,
+      pensionDefermentYears: survivorPension.defermentYears,
+      pensionPaymentYears: survivorPension.paymentYears,
+      pensionEarlyFactor: survivorPension.earlyFactor,
+      pensionPresentValue: survivorPension.presentValue,
+      pensionTaxAdjustedValue: survivorPension.taxAdjustedValue,
       accessibleAssets,
       grossNeed,
       employerCoverage,
