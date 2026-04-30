@@ -1,7 +1,10 @@
 import type {
   CalculatorInputs,
   CalculatorResult,
+  MortgageStrategy,
   PolicyRecommendation,
+  ScenarioId,
+  ScenarioSummary,
   SolverWarning,
   TermLength,
   YearlyRow
@@ -11,6 +14,16 @@ const TERMS: TermLength[] = [10, 15, 20, 30];
 const HORIZON_YEARS = 40;
 const QUOTE_ANCHOR_LOW = 1000000;
 const QUOTE_ANCHOR_HIGH = 2000000;
+export const SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM = 184500;
+export const SOCIAL_SECURITY_2026_PIA_BEND_POINTS = {
+  first: 1286,
+  second: 7749
+};
+export const SOCIAL_SECURITY_2026_FAMILY_MAX_BEND_POINTS = {
+  first: 1643,
+  second: 2371,
+  third: 3093
+};
 const TERM4SALE_QUOTES: Record<typeof QUOTE_ANCHOR_LOW | typeof QUOTE_ANCHOR_HIGH, Record<TermLength, number>> = {
   [QUOTE_ANCHOR_LOW]: {
     10: 218.9,
@@ -24,6 +37,23 @@ const TERM4SALE_QUOTES: Record<typeof QUOTE_ANCHOR_LOW | typeof QUOTE_ANCHOR_HIG
     20: 630,
     30: 1184.16
   }
+};
+
+type CalculationOptions = {
+  realReturnOverride?: number;
+  employerCoverageCreditFactor?: number;
+  socialSecurityCreditFactor?: number;
+  mortgageStrategy?: MortgageStrategy;
+  includeCollegeFunding?: boolean;
+};
+
+type ScenarioConfig = {
+  id: ScenarioId;
+  label: string;
+  realReturn: number;
+  employerCoverageCreditFactor: number;
+  socialSecurityCreditFactor: number;
+  includeCollegeFunding: boolean;
 };
 
 export function fisherRealRate(nominalRate: number, inflationRate: number) {
@@ -77,6 +107,72 @@ export function presentValueAnnuity(
     annualAmountToday *
     ((1 - Math.pow(1 + realDiscountRate, -years)) / realDiscountRate)
   );
+}
+
+export function estimateSocialSecurityPia(
+  coveredAnnualEarnings: number,
+  taxableMaximum = SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM
+) {
+  const aime = Math.max(0, Math.min(coveredAnnualEarnings, taxableMaximum)) / 12;
+  const firstBend = SOCIAL_SECURITY_2026_PIA_BEND_POINTS.first;
+  const secondBend = SOCIAL_SECURITY_2026_PIA_BEND_POINTS.second;
+
+  return (
+    0.9 * Math.min(aime, firstBend) +
+    0.32 * Math.min(Math.max(0, aime - firstBend), secondBend - firstBend) +
+    0.15 * Math.max(0, aime - secondBend)
+  );
+}
+
+export function estimateSocialSecurityFamilyMaximum(pia: number) {
+  const firstBend = SOCIAL_SECURITY_2026_FAMILY_MAX_BEND_POINTS.first;
+  const secondBend = SOCIAL_SECURITY_2026_FAMILY_MAX_BEND_POINTS.second;
+  const thirdBend = SOCIAL_SECURITY_2026_FAMILY_MAX_BEND_POINTS.third;
+
+  return (
+    1.5 * Math.min(pia, firstBend) +
+    2.72 * Math.min(Math.max(0, pia - firstBend), secondBend - firstBend) +
+    1.34 * Math.min(Math.max(0, pia - secondBend), thirdBend - secondBend) +
+    1.75 * Math.max(0, pia - thirdBend)
+  );
+}
+
+export function estimateAnnualSocialSecuritySurvivorBenefit(
+  inputs: CalculatorInputs,
+  deathYear: number,
+  benefitYearOffset = 0
+) {
+  const childEndAge = inputs.socialSecurityChildSecondarySchoolToAge19 ? 19 : 18;
+  const childAge = inputs.youngestChildAge + deathYear + benefitYearOffset;
+  const childBeneficiaries =
+    childAge < childEndAge ? Math.max(0, inputs.socialSecurityEligibleChildren) : 0;
+  const caregiverBeneficiaries = childAge < 16 && childBeneficiaries > 0 ? 1 : 0;
+  const beneficiaryCount = childBeneficiaries + caregiverBeneficiaries;
+  if (beneficiaryCount <= 0) return 0;
+
+  const pia = estimateSocialSecurityPia(inputs.socialSecurityCoveredAnnualEarnings);
+  const uncappedMonthlyBenefit = pia * 0.75 * beneficiaryCount;
+  const familyMaximum = estimateSocialSecurityFamilyMaximum(pia);
+  return Math.min(uncappedMonthlyBenefit, familyMaximum) * 12;
+}
+
+export function presentValueSocialSecuritySurvivorBenefits(
+  inputs: CalculatorInputs,
+  deathYear: number,
+  realDiscountRate: number
+) {
+  const childEndAge = inputs.socialSecurityChildSecondarySchoolToAge19 ? 19 : 18;
+  const youngestAgeAtDeath = inputs.youngestChildAge + deathYear;
+  const maxBenefitYears = Math.max(0, childEndAge - youngestAgeAtDeath);
+  let presentValue = 0;
+
+  for (let offset = 0; offset < maxBenefitYears; offset += 1) {
+    presentValue +=
+      estimateAnnualSocialSecuritySurvivorBenefit(inputs, deathYear, offset) /
+      Math.pow(1 + realDiscountRate, offset);
+  }
+
+  return presentValue;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -234,6 +330,41 @@ export function remainingMortgagePrincipal(
   );
 }
 
+export function monthlyMortgagePayment(
+  balance: number,
+  annualRate: number,
+  yearsRemaining: number
+) {
+  if (balance <= 0 || yearsRemaining <= 0) return 0;
+  const monthsTotal = Math.round(yearsRemaining * 12);
+  const monthlyRate = annualRate / 12;
+  if (monthlyRate === 0) return balance / monthsTotal;
+  return (balance * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -monthsTotal));
+}
+
+export function presentValueRemainingMortgagePayments(
+  balance: number,
+  annualRate: number,
+  yearsRemaining: number,
+  year: number,
+  inflationRate: number,
+  realDiscountRate: number
+) {
+  const monthsTotal = Math.round(Math.max(0, yearsRemaining) * 12);
+  const monthsElapsed = Math.round(Math.max(0, year) * 12);
+  const monthsLeft = Math.max(0, monthsTotal - monthsElapsed);
+  if (balance <= 0 || monthsLeft <= 0) return 0;
+
+  const payment = monthlyMortgagePayment(balance, annualRate, yearsRemaining);
+  const annualPaymentInDeathYearDollars =
+    (payment * 12) / inflationFactor(inflationRate, year);
+  return presentValueAnnuity(
+    annualPaymentInDeathYearDollars,
+    Math.ceil(monthsLeft / 12),
+    realDiscountRate
+  );
+}
+
 export function accumulateRealAssets(
   startingBalance: number,
   annualContribution: number,
@@ -256,19 +387,30 @@ export function effectiveRetirementTaxHaircut(inputs: CalculatorInputs) {
   return preTaxShare * preTaxHaircut + postTaxShare * postTaxHaircut;
 }
 
-export function buildBaseNeedRows(inputs: CalculatorInputs) {
-  const realDiscountRate = fisherRealRate(
-    inputs.nominalDiscountRate,
-    inputs.inflationRate
+export function buildBaseNeedRows(
+  inputs: CalculatorInputs,
+  options: CalculationOptions = {}
+) {
+  const realDiscountRate =
+    options.realReturnOverride ??
+    fisherRealRate(inputs.nominalDiscountRate, inputs.inflationRate);
+  const realAssetGrowthRate =
+    options.realReturnOverride ??
+    fisherRealRate(inputs.nominalAssetGrowthRate, inputs.inflationRate);
+  const realRetirementGrowthRate =
+    options.realReturnOverride ??
+    fisherRealRate(inputs.nominalRetirementGrowthRate, inputs.inflationRate);
+  const employerCoverageCreditFactor = clamp(
+    options.employerCoverageCreditFactor ?? inputs.employerCoverageCreditFactor,
+    0,
+    1
   );
-  const realAssetGrowthRate = fisherRealRate(
-    inputs.nominalAssetGrowthRate,
-    inputs.inflationRate
+  const socialSecurityCreditFactor = clamp(
+    options.socialSecurityCreditFactor ?? inputs.socialSecurityCreditFactor,
+    0,
+    1
   );
-  const realRetirementGrowthRate = fisherRealRate(
-    inputs.nominalRetirementGrowthRate,
-    inputs.inflationRate
-  );
+  const includeCollegeFunding = options.includeCollegeFunding ?? false;
   const retirementHaircut = effectiveRetirementTaxHaircut(inputs);
   const retirementHorizon = Math.max(0, inputs.retirementAge - inputs.insuredAge);
   const annualSpendingDeficit = Math.max(
@@ -308,6 +450,32 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
         postDropYears,
         realDiscountRate
       ) / Math.pow(1 + realDiscountRate, preDropYears);
+    const childAgeAtDeath = inputs.youngestChildAge + year;
+    const childcareSupportYears = Math.min(
+      remainingSpendingYears,
+      Math.max(0, inputs.childcareSupportEndAge - childAgeAtDeath)
+    );
+    const childcareHouseholdSupportPv = presentValueAnnuity(
+      inputs.childcareHouseholdSupportAnnual,
+      childcareSupportYears,
+      realDiscountRate
+    );
+    let collegeFundingPv = 0;
+    if (includeCollegeFunding && inputs.annualCollegeFunding > 0) {
+      for (
+        let collegeYear = Math.max(year, inputs.collegeStartYear);
+        collegeYear <= inputs.collegeEndYear;
+        collegeYear += 1
+      ) {
+        collegeFundingPv +=
+          inputs.annualCollegeFunding /
+          Math.pow(1 + realDiscountRate, collegeYear - year);
+      }
+    }
+    const grossSocialSecuritySurvivorPv =
+      presentValueSocialSecuritySurvivorBenefits(inputs, year, realDiscountRate);
+    const creditedSocialSecuritySurvivorPv =
+      grossSocialSecuritySurvivorPv * socialSecurityCreditFactor;
     const selectedDisplayNeed =
       inputs.selectedNeedBasis === "income" ? incomePvNeed : spendingPvNeed;
     const nominalMortgagePrincipal = remainingMortgagePrincipal(
@@ -321,6 +489,26 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       inputs.inflationRate,
       year
     );
+    const mortgagePayoffDemandReal = realMortgagePrincipal;
+    const mortgageContinuePaymentsDemandReal =
+      presentValueRemainingMortgagePayments(
+        inputs.mortgageBalance,
+        inputs.mortgageAnnualRate,
+        inputs.mortgageYearsRemaining,
+        year,
+        inputs.inflationRate,
+        realDiscountRate
+      );
+    const lowerMortgageStrategy: MortgageStrategy =
+      mortgagePayoffDemandReal <= mortgageContinuePaymentsDemandReal
+        ? "payoff_at_death"
+        : "continue_monthly_payments";
+    const selectedMortgageStrategy =
+      options.mortgageStrategy ?? lowerMortgageStrategy;
+    const realMortgageDemand =
+      selectedMortgageStrategy === "payoff_at_death"
+        ? mortgagePayoffDemandReal
+        : mortgageContinuePaymentsDemandReal;
     const liquidAssets = accumulateRealAssets(
       inputs.currentLiquidAssets,
       inputs.annualNonRetirementSavings,
@@ -357,14 +545,22 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       inputs.inflationRate,
       year
     );
-    const spendingDemandReal = spendingPvNeed + realMortgagePrincipal;
+    const creditedEmployerCoverage = realEmployerCoverage * employerCoverageCreditFactor;
+    const spendingDemandReal = Math.max(
+      0,
+      spendingPvNeed +
+        childcareHouseholdSupportPv +
+        collegeFundingPv +
+        realMortgageDemand -
+        creditedSocialSecuritySurvivorPv
+    );
     const spendingNeedAfterAssetsReal = Math.max(
       0,
       spendingDemandReal - accessibleAssets
     );
     const spendingNetNeedReal = Math.max(
       0,
-      spendingNeedAfterAssetsReal - realEmployerCoverage
+      spendingNeedAfterAssetsReal - creditedEmployerCoverage
     );
     const exactNominalRequired = exactNominalCoverageRequired(
       spendingNetNeedReal,
@@ -377,17 +573,25 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       year,
       inputs.coverageIncrement
     );
-    const capitalSupply = accessibleAssets + realEmployerCoverage;
+    const capitalSupply = accessibleAssets + creditedEmployerCoverage;
     const capitalDemand = spendingDemandReal;
     const capitalGap = capitalSupply - capitalDemand;
 
     rows.push({
       year,
       incomePvNeed,
+      childcareHouseholdSupportPv,
+      collegeFundingPv,
+      grossSocialSecuritySurvivorPv,
+      creditedSocialSecuritySurvivorPv,
       spendingPvNeed,
       selectedDisplayNeed,
       incomeSensitivityNeed: incomePvNeed,
       nominalMortgagePrincipal,
+      realMortgageDemand,
+      mortgagePayoffDemandReal,
+      mortgageContinuePaymentsDemandReal,
+      selectedMortgageStrategy,
       realMortgagePrincipal,
       liquidAssets,
       retirementAssetsBeforeHaircut,
@@ -410,10 +614,11 @@ export function buildBaseNeedRows(inputs: CalculatorInputs) {
       exactNominalCoverageRequired: exactNominalRequired,
       nominalRequiredCoverage,
       realEmployerCoverage,
+      creditedEmployerCoverage,
       nominalPersonalCoverage: 0,
       realPersonalCoverage: 0,
       personalLadderCoverage: 0,
-      totalCoverage: realEmployerCoverage,
+      totalCoverage: creditedEmployerCoverage,
       undercoverage: spendingNetNeedReal,
       overcoverage: 0,
       capitalSupply,
@@ -543,14 +748,33 @@ export function solvePolicyLadder(
   };
 }
 
-export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
+function totalPersonalCoverage(policies: PolicyRecommendation[]) {
+  return policies.reduce((sum, policy) => sum + policy.amount, 0);
+}
+
+function policyAmount(policies: PolicyRecommendation[], term: TermLength) {
+  return policies.find((policy) => policy.termYears === term)?.amount ?? 0;
+}
+
+function coverageGapByYear(rows: YearlyRow[]) {
+  return rows.slice(0, 31).map((row) => ({
+    year: row.year,
+    shortfall: row.undercoverage,
+    surplus: row.overcoverage
+  }));
+}
+
+function calculateSingleLadder(
+  inputs: CalculatorInputs,
+  options: CalculationOptions = {}
+): CalculatorResult {
   const {
     rows,
     realDiscountRate,
     realAssetGrowthRate,
     realRetirementGrowthRate,
     effectiveRetirementTaxHaircut
-  } = buildBaseNeedRows(inputs);
+  } = buildBaseNeedRows(inputs, options);
   const effectivePricing = effectiveCostWeightsForRows(rows, inputs);
   const solverInputs = {
     ...inputs,
@@ -567,7 +791,7 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
       inputs.inflationRate,
       row.year
     );
-    const totalCoverage = row.realEmployerCoverage + realPersonalCoverage;
+    const totalCoverage = row.creditedEmployerCoverage + realPersonalCoverage;
     const capitalDemand = row.spendingDemandReal;
     const capitalSupply = row.accessibleAssets + totalCoverage;
     const capitalGap = capitalSupply - capitalDemand;
@@ -608,6 +832,8 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     });
   }
 
+  const personalCoverage = totalPersonalCoverage(solved.policies);
+
   return {
     rows: projectedRows,
     policies: solved.policies,
@@ -623,6 +849,149 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
       worstGapYear: worstRow.year,
       firstDeficitYear: firstDeficit?.year ?? null
     },
-    weightedFaceAmount: solved.weightedFaceAmount
+    weightedFaceAmount: solved.weightedFaceAmount,
+    recommended10YearTerm: policyAmount(solved.policies, 10),
+    recommended15YearTerm: policyAmount(solved.policies, 15),
+    recommended20YearTerm: policyAmount(solved.policies, 20),
+    recommended30YearTerm: policyAmount(solved.policies, 30),
+    totalInitialCoverage: personalCoverage,
+    coverageGapByYear: coverageGapByYear(projectedRows),
+    scenarioMatrix: []
+  };
+}
+
+function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
+  return [
+    {
+      id: "conservative",
+      label: "Conservative / Max Safety",
+      realReturn: inputs.realReturnConservative,
+      employerCoverageCreditFactor: 0,
+      socialSecurityCreditFactor: 0,
+      includeCollegeFunding: false
+    },
+    {
+      id: "base",
+      label: "Base Case",
+      realReturn: inputs.realReturnBaseCase,
+      employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
+      socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
+      includeCollegeFunding: false
+    },
+    {
+      id: "optimistic",
+      label: "Optimistic / Lowest Coverage",
+      realReturn: inputs.realReturnOptimistic,
+      employerCoverageCreditFactor: 1,
+      socialSecurityCreditFactor: 1,
+      includeCollegeFunding: false
+    },
+    {
+      id: "base_with_college",
+      label: "Base + College Sensitivity",
+      realReturn: inputs.realReturnBaseCase,
+      employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
+      socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
+      includeCollegeFunding: true
+    }
+  ];
+}
+
+function buildScenarioSummary(
+  inputs: CalculatorInputs,
+  config: ScenarioConfig,
+  basePersonalCoverage: number
+): ScenarioSummary {
+  const commonOptions: CalculationOptions = {
+    realReturnOverride: config.realReturn,
+    employerCoverageCreditFactor: config.employerCoverageCreditFactor,
+    socialSecurityCreditFactor: config.socialSecurityCreditFactor,
+    includeCollegeFunding: config.includeCollegeFunding
+  };
+  const payoff = calculateSingleLadder(inputs, {
+    ...commonOptions,
+    mortgageStrategy: "payoff_at_death"
+  });
+  const continuePayments = calculateSingleLadder(inputs, {
+    ...commonOptions,
+    mortgageStrategy: "continue_monthly_payments"
+  });
+  const primary =
+    payoff.rows[0].mortgagePayoffDemandReal <=
+    payoff.rows[0].mortgageContinuePaymentsDemandReal
+      ? payoff
+      : continuePayments;
+  const firstRow = primary.rows[0];
+  const estimatedShortfall = Math.max(0, -primary.capitalSufficiency.worstGap);
+  const estimatedSurplus = Math.max(0, primary.capitalSufficiency.worstGap);
+
+  return {
+    id: config.id,
+    label: config.label,
+    realReturn: config.realReturn,
+    employerCoverageCreditFactor: config.employerCoverageCreditFactor,
+    socialSecurityCreditFactor: config.socialSecurityCreditFactor,
+    includesCollegeFunding: config.includeCollegeFunding,
+    currentEmployerGroupCoverage: firstRow.realEmployerCoverage,
+    creditedEmployerGroupCoverage: firstRow.creditedEmployerCoverage,
+    personallyOwnedTermCoverage: primary.totalInitialCoverage,
+    totalModeledCoverage:
+      firstRow.creditedEmployerCoverage + primary.totalInitialCoverage,
+    estimatedShortfall,
+    estimatedSurplus,
+    collegeSensitivityDelta: config.includeCollegeFunding
+      ? Math.max(0, primary.totalInitialCoverage - basePersonalCoverage)
+      : 0,
+    recommended10YearTerm: primary.recommended10YearTerm,
+    recommended15YearTerm: primary.recommended15YearTerm,
+    recommended20YearTerm: primary.recommended20YearTerm,
+    recommended30YearTerm: primary.recommended30YearTerm,
+    mortgageStrategy: firstRow.selectedMortgageStrategy,
+    mortgageStrategyComparison: [
+      {
+        strategy: "payoff_at_death",
+        totalInitialCoverage: payoff.totalInitialCoverage,
+        worstGap: payoff.capitalSufficiency.worstGap,
+        firstDeficitYear: payoff.capitalSufficiency.firstDeficitYear,
+        mortgageDemandYear0: payoff.rows[0].realMortgageDemand
+      },
+      {
+        strategy: "continue_monthly_payments",
+        totalInitialCoverage: continuePayments.totalInitialCoverage,
+        worstGap: continuePayments.capitalSufficiency.worstGap,
+        firstDeficitYear: continuePayments.capitalSufficiency.firstDeficitYear,
+        mortgageDemandYear0: continuePayments.rows[0].realMortgageDemand
+      }
+    ]
+  };
+}
+
+export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
+  const baseOptions: CalculationOptions = {
+    realReturnOverride: inputs.realReturnBaseCase,
+    employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
+    socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
+    includeCollegeFunding: false
+  };
+  const payoff = calculateSingleLadder(inputs, {
+    ...baseOptions,
+    mortgageStrategy: "payoff_at_death"
+  });
+  const continuePayments = calculateSingleLadder(inputs, {
+    ...baseOptions,
+    mortgageStrategy: "continue_monthly_payments"
+  });
+  const result =
+    payoff.rows[0].mortgagePayoffDemandReal <=
+    payoff.rows[0].mortgageContinuePaymentsDemandReal
+      ? payoff
+      : continuePayments;
+  const matrix = scenarioConfigs(inputs).map((config) =>
+    buildScenarioSummary(inputs, config, result.totalInitialCoverage)
+  );
+
+  return {
+    ...result,
+    scenarioMatrix: matrix
   };
 }

@@ -41,6 +41,12 @@ function money(value: number) {
   return currencyFormatter.format(value);
 }
 
+function mortgageStrategyLabel(strategy: string) {
+  return strategy === "payoff_at_death"
+    ? "Payoff at death"
+    : "Continue payments";
+}
+
 function parseNumber(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -276,9 +282,12 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
             <th>Year</th>
             <th>Income PV</th>
             <th>Spending PV</th>
+            <th>Childcare/support</th>
+            <th>College</th>
+            <th>SS credit</th>
             <th>Mortgage</th>
             <th>Accessible assets</th>
-            <th>Employer</th>
+            <th>Employer credit</th>
             <th>Net need</th>
             <th>Personal ladder</th>
             <th>Total coverage</th>
@@ -292,9 +301,12 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
               <td>{row.year}</td>
               <td>{money(row.incomePvNeed)}</td>
               <td>{money(row.spendingPvNeed)}</td>
-              <td>{money(row.realMortgagePrincipal)}</td>
+              <td>{money(row.childcareHouseholdSupportPv)}</td>
+              <td>{money(row.collegeFundingPv)}</td>
+              <td>{money(row.creditedSocialSecuritySurvivorPv)}</td>
+              <td>{money(row.realMortgageDemand)}</td>
               <td>{money(row.accessibleAssets)}</td>
-              <td>{money(row.realEmployerCoverage)}</td>
+              <td>{money(row.creditedEmployerCoverage)}</td>
               <td>{money(row.spendingNetNeedReal)}</td>
               <td>{money(row.realPersonalCoverage)}</td>
               <td>{money(row.totalCoverage)}</td>
@@ -341,10 +353,7 @@ export function App() {
   const rowsToPrint = result.rows.slice(0, 31);
   const firstRow = result.rows[0];
   const maxUndercoverage = Math.max(...result.rows.slice(0, 30).map((row) => row.undercoverage));
-  const totalPersonalCoverage = result.policies.reduce(
-    (sum, policy) => sum + policy.amount,
-    0
-  );
+  const totalPersonalCoverage = result.totalInitialCoverage;
 
   const setInput = <K extends keyof CalculatorInputs>(key: K, value: CalculatorInputs[K]) => {
     setInputs((current) => ({ ...current, [key]: value }));
@@ -384,7 +393,7 @@ export function App() {
     },
     {
       label: "Recommended coverage",
-      value: money(totalPersonalCoverage),
+      value: money(result.totalInitialCoverage),
       note: "Nominal face amount to purchase",
       tone: "success"
     },
@@ -504,7 +513,34 @@ export function App() {
               help="Annual reduction to spending need after the drop-off year."
             />
             <RateField label="Inflation rate" value={inputs.inflationRate} onChange={(v) => setInput("inflationRate", v)} />
-            <RateField label="Nominal discount rate" value={inputs.nominalDiscountRate} onChange={(v) => setInput("nominalDiscountRate", v)} help="Editable field initialized from the asset growth default." />
+            <RateField label="Base real return" value={inputs.realReturnBaseCase} onChange={(v) => setInput("realReturnBaseCase", v)} />
+            <RateField label="Conservative real return" value={inputs.realReturnConservative} onChange={(v) => setInput("realReturnConservative", v)} />
+            <RateField label="Optimistic real return" value={inputs.realReturnOptimistic} onChange={(v) => setInput("realReturnOptimistic", v)} />
+            <Field
+              label="Childcare/household support"
+              value={inputs.childcareHouseholdSupportAnnual}
+              onChange={(v) => setInput("childcareHouseholdSupportAnnual", v)}
+              prefix="$"
+              step={5000}
+              help="Separate temporary annual support liability."
+            />
+            <Field
+              label="Support end age"
+              value={inputs.childcareSupportEndAge}
+              onChange={(v) => setInput("childcareSupportEndAge", v)}
+              help="Support ends when the youngest child reaches this age."
+            />
+            <Field
+              label="College sensitivity annual"
+              value={inputs.annualCollegeFunding}
+              onChange={(v) => setInput("annualCollegeFunding", v)}
+              prefix="$"
+              step={5000}
+              help="Excluded from base; included only in the college sensitivity."
+            />
+            <Field label="College start year" value={inputs.collegeStartYear} onChange={(v) => setInput("collegeStartYear", v)} />
+            <Field label="College end year" value={inputs.collegeEndYear} onChange={(v) => setInput("collegeEndYear", v)} />
+            <RateField label="Nominal discount rate" value={inputs.nominalDiscountRate} onChange={(v) => setInput("nominalDiscountRate", v)} help="Used outside the scenario real-return matrix." />
           </section>
 
           <section className="panel">
@@ -600,11 +636,45 @@ export function App() {
               step={100000}
               help="Nominal coverage amount deflated by death year for real-dollar sufficiency."
             />
+            <RateField
+              label="Base employer credit"
+              value={inputs.employerCoverageCreditFactor}
+              onChange={(v) => setInput("employerCoverageCreditFactor", Math.min(1, Math.max(0, v)))}
+              help="Base case credits only part of group coverage for portability risk."
+            />
             <Field
               label="Employer coverage end year"
               value={inputs.employerCoverageEndYear}
               onChange={(v) => setInput("employerCoverageEndYear", v)}
               help="Coverage applies through this model year, then drops to zero."
+            />
+            <Field
+              label="SS covered earnings"
+              value={inputs.socialSecurityCoveredAnnualEarnings}
+              onChange={(v) => setInput("socialSecurityCoveredAnnualEarnings", v)}
+              prefix="$"
+              step={10000}
+              help="Capped at the 2026 taxable maximum inside the model."
+            />
+            <Field
+              label="SS eligible children"
+              value={inputs.socialSecurityEligibleChildren}
+              onChange={(v) => setInput("socialSecurityEligibleChildren", v)}
+            />
+            <Field
+              label="Youngest child age"
+              value={inputs.youngestChildAge}
+              onChange={(v) => setInput("youngestChildAge", v)}
+            />
+            <RateField
+              label="Base SS credit"
+              value={inputs.socialSecurityCreditFactor}
+              onChange={(v) => setInput("socialSecurityCreditFactor", Math.min(1, Math.max(0, v)))}
+            />
+            <Toggle
+              checked={inputs.socialSecurityChildSecondarySchoolToAge19}
+              onChange={(checked) => setInput("socialSecurityChildSecondarySchoolToAge19", checked)}
+              label="Extend child SS benefit to age 19"
             />
           </section>
 
@@ -672,6 +742,72 @@ export function App() {
                 </article>
               ))}
             </div>
+          </section>
+
+          <section className="panel">
+            <div className="panelHeader">
+              <div>
+                <h2>Scenario Matrix</h2>
+                <span>Base excludes college; the college row shows sensitivity only.</span>
+              </div>
+            </div>
+            <div className="tableWrap scenarioTable">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Scenario</th>
+                    <th>Return</th>
+                    <th>Employer credit</th>
+                    <th>SS credit</th>
+                    <th>Current group</th>
+                    <th>Credited group</th>
+                    <th>Personal term</th>
+                    <th>Total modeled</th>
+                    <th>Shortfall/surplus</th>
+                    <th>Mortgage default</th>
+                    <th>Payoff / Continue</th>
+                    <th>College delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.scenarioMatrix.map((scenario) => {
+                    const payoff = scenario.mortgageStrategyComparison.find(
+                      (item) => item.strategy === "payoff_at_death"
+                    );
+                    const continuePayments = scenario.mortgageStrategyComparison.find(
+                      (item) => item.strategy === "continue_monthly_payments"
+                    );
+                    return (
+                      <tr key={scenario.id}>
+                        <td>{scenario.label}</td>
+                        <td>{percentFormatter.format(scenario.realReturn)}</td>
+                        <td>{percentFormatter.format(scenario.employerCoverageCreditFactor)}</td>
+                        <td>{percentFormatter.format(scenario.socialSecurityCreditFactor)}</td>
+                        <td>{money(scenario.currentEmployerGroupCoverage)}</td>
+                        <td>{money(scenario.creditedEmployerGroupCoverage)}</td>
+                        <td>{money(scenario.personallyOwnedTermCoverage)}</td>
+                        <td>{money(scenario.totalModeledCoverage)}</td>
+                        <td>
+                          {scenario.estimatedShortfall > 0
+                            ? `${money(scenario.estimatedShortfall)} short`
+                            : `${money(scenario.estimatedSurplus)} surplus`}
+                        </td>
+                        <td>{mortgageStrategyLabel(scenario.mortgageStrategy)}</td>
+                        <td>
+                          {money(payoff?.totalInitialCoverage ?? 0)} /{" "}
+                          {money(continuePayments?.totalInitialCoverage ?? 0)}
+                        </td>
+                        <td>{money(scenario.collegeSensitivityDelta)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="panelNote">
+              College is not insured in the base ladder; the sensitivity assumes
+              tuition is not fully cash-flowed from survivor income or existing assets.
+            </p>
           </section>
 
           <section className="panel ladderPanel">
@@ -771,7 +907,7 @@ export function App() {
               <article>
                 <span>Year 0 supply</span>
                 <strong>{money(firstRow?.capitalSupply ?? 0)}</strong>
-                <small>Assets + real pension + real coverage</small>
+                <small>Assets + credited employer + personal coverage</small>
               </article>
               <article>
                 <span>Pension PV</span>
@@ -781,7 +917,7 @@ export function App() {
               <article>
                 <span>Year 0 demand</span>
                 <strong>{money(firstRow?.capitalDemand ?? 0)}</strong>
-                <small>Spending PV + real mortgage payoff</small>
+                <small>Spending, support, mortgage, less SS credit</small>
               </article>
             </div>
           </section>
@@ -797,9 +933,10 @@ export function App() {
             </div>
             <div className="reportMeta">
               <span>Selected target: {inputs.selectedNeedBasis}</span>
-              <span>Employer coverage: {inputs.includeEmployerCoverage ? "included" : "excluded"}</span>
+              <span>Employer coverage: {inputs.includeEmployerCoverage ? "credited" : "excluded"}</span>
               <span>Survivor pension: {inputs.includeSurvivorPension ? "included" : "excluded"}</span>
               <span>Weighted face amount: {money(result.weightedFaceAmount)}</span>
+              <span>College: sensitivity only</span>
             </div>
             <div className="tableWrap">
               <table>
@@ -807,8 +944,9 @@ export function App() {
                   <tr>
                     <th>Year</th>
                     <th>Net need</th>
+                    <th>SS credit</th>
                     <th>Pension PV</th>
-                    <th>Employer</th>
+                    <th>Employer credit</th>
                     <th>Personal ladder</th>
                     <th>Under</th>
                     <th>Over</th>
@@ -819,8 +957,9 @@ export function App() {
                     <tr key={row.year}>
                       <td>{row.year}</td>
                       <td>{money(row.spendingNetNeedReal)}</td>
+                      <td>{money(row.creditedSocialSecuritySurvivorPv)}</td>
                       <td>{money(row.pensionTaxAdjustedValue)}</td>
-                      <td>{money(row.realEmployerCoverage)}</td>
+                      <td>{money(row.creditedEmployerCoverage)}</td>
                       <td>{money(row.realPersonalCoverage)}</td>
                       <td>{money(row.undercoverage)}</td>
                       <td>{money(row.overcoverage)}</td>

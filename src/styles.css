@@ -730,6 +730,17 @@ tfoot td {
   min-width: 1180px;
 }
 
+.scenarioTable table {
+  min-width: 1420px;
+}
+
+.panelNote {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .reportMeta {
   margin-bottom: 12px;
 }

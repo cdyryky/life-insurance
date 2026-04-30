@@ -155,21 +155,30 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
       </div>
       <TraceRow label="spendingPvNeed" value={money(year0.spendingPvNeed)} />
       <TraceRow
-        label="realMortgagePrincipal"
-        value={money(year0.realMortgagePrincipal)}
-        note={`Nominal balance: ${money(year0.nominalMortgagePrincipal)}.`}
+        label="realMortgageDemand"
+        value={money(year0.realMortgageDemand)}
+        note={`${year0.selectedMortgageStrategy === "payoff_at_death" ? "Payoff" : "Continue payments"} strategy selected.`}
+      />
+      <TraceRow
+        label="childcareHouseholdSupportPv"
+        value={money(year0.childcareHouseholdSupportPv)}
+      />
+      <TraceRow label="collegeFundingPv" value={money(year0.collegeFundingPv)} />
+      <TraceRow
+        label="creditedSocialSecuritySurvivorPv"
+        value={money(year0.creditedSocialSecuritySurvivorPv)}
       />
       <TraceRow
         label="spendingDemandReal"
         value={money(year0.spendingDemandReal)}
-        note="spendingPvNeed + realMortgagePrincipal."
+        note="Household spending + support + college sensitivity + mortgage, less credited Social Security."
       />
       <TraceRow
         label="accessibleAssets"
         value={money(year0.accessibleAssets)}
         note="Liquid assets + retirement assets after haircut + real pension PV."
       />
-      <TraceRow label="realEmployerCoverage" value={money(year0.realEmployerCoverage)} />
+      <TraceRow label="creditedEmployerCoverage" value={money(year0.creditedEmployerCoverage)} />
       <TraceRow
         label="spendingNetNeedReal"
         value={money(year0.spendingNetNeedReal)}
@@ -224,7 +233,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                 The calculator asks whether the survivor has enough real capital at
                 each modeled death year. Capital supply is assets, employer coverage,
                 survivor pension value, and the personal term ladder. Capital demand
-                is household spending need plus mortgage payoff.
+                is household spending need plus discrete support liabilities and
+                selected mortgage demand, reduced by credited Social Security.
               </p>
               <p>
                 Income PV is shown as a comparison and sensitivity. The actual policy
@@ -273,8 +283,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               />
               <FieldFormula
                 name="spendingDemandReal"
-                formula="spendingDemandReal = spendingPvNeed + realMortgagePrincipal"
-                explanation="The solver demand combines the survivor spending plan with the real mortgage payoff amount."
+                formula="spendingDemandReal = spending + childcare + college + mortgage - socialSecurityCredit"
+                explanation="The solver demand combines survivor spending, discrete support liabilities, selected mortgage strategy, and credited Social Security survivor benefits."
               />
               <FieldFormula
                 name="nominalRequiredCoverage"
@@ -305,8 +315,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               />
               <FieldFormula
                 name="spendingNetNeedReal"
-                formula="max(0, spendingNeedAfterAssetsReal - realEmployerCoverage)"
-                explanation="Employer coverage is treated as an offset after assets, then personal term fills the remaining real need."
+                formula="max(0, spendingNeedAfterAssetsReal - creditedEmployerCoverage)"
+                explanation="Employer coverage is credit-adjusted for portability risk, then personal term fills the remaining real need."
               />
             </div>
             <div className="methodologyMetrics">
@@ -327,7 +337,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               />
               <MetricCard
                 label="Employer coverage"
-                value={money(year0.realEmployerCoverage)}
+                value={money(year0.creditedEmployerCoverage)}
                 note={`${inputs.includeEmployerCoverage ? "Included" : "Excluded"} in current scenario.`}
               />
             </div>
@@ -426,8 +436,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                   <li>Not financial advice.</li>
                   <li>Does not model premium affordability or premium drag.</li>
                   <li>Does not model underwriting class differences.</li>
-                  <li>Does not model Social Security survivor benefits.</li>
-                  <li>Does not model child-by-child education ledgers.</li>
+                  <li>Social Security survivor benefits are rough estimates from simplified 2026 SSA rules.</li>
+                  <li>College is excluded from the base ladder and shown as a sensitivity only.</li>
                   <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base.</li>
                   <li>Uses integer death years.</li>
                   <li>Term coverage is modeled through years 0-29.</li>
@@ -454,7 +464,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
         <p>
           The ladder is solved against spending-basis capital sufficiency. Income PV
           is displayed as a sensitivity, but the solver uses spendingDemandReal,
-          accessibleAssets, realEmployerCoverage, and personal term coverage.
+          accessibleAssets, creditedEmployerCoverage, and personal term coverage.
         </p>
         {year0Trace}
         <div className="methodologyGrid">

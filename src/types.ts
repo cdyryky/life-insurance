@@ -4,6 +4,16 @@ export type TermLength = 10 | 15 | 20 | 30;
 
 export type PremiumWeightMode = "quote-derived" | "manual";
 
+export type MortgageStrategy = "payoff_at_death" | "continue_monthly_payments";
+
+export type CollegeFundingMode = "scenario_only";
+
+export type ScenarioId =
+  | "conservative"
+  | "base"
+  | "optimistic"
+  | "base_with_college";
+
 export type CalculatorInputs = {
   insuredAge: number;
   spouseAge: number;
@@ -14,6 +24,12 @@ export type CalculatorInputs = {
   survivingSpouseIncome: number;
   dependentDropOffYear: number;
   dependentDropOffAmount: number;
+  childcareHouseholdSupportAnnual: number;
+  childcareSupportEndAge: number;
+  collegeFundingMode: CollegeFundingMode;
+  annualCollegeFunding: number;
+  collegeStartYear: number;
+  collegeEndYear: number;
   currentLiquidAssets: number;
   annualNonRetirementSavings: number;
   nominalAssetGrowthRate: number;
@@ -37,9 +53,19 @@ export type CalculatorInputs = {
   mortgageBalance: number;
   mortgageAnnualRate: number;
   mortgageYearsRemaining: number;
+  mortgageStrategy: MortgageStrategy;
   employerCoverageAmount: number;
   employerCoverageEndYear: number;
+  employerCoverageCreditFactor: number;
   includeEmployerCoverage: boolean;
+  socialSecurityCreditFactor: number;
+  socialSecurityEligibleChildren: number;
+  youngestChildAge: number;
+  socialSecurityCoveredAnnualEarnings: number;
+  socialSecurityChildSecondarySchoolToAge19: boolean;
+  realReturnBaseCase: number;
+  realReturnConservative: number;
+  realReturnOptimistic: number;
   selectedNeedBasis: NeedBasis;
   coverageIncrement: number;
   maxCoveragePerTerm: number;
@@ -57,10 +83,18 @@ export type PolicyRecommendation = {
 export type YearlyRow = {
   year: number;
   incomePvNeed: number;
+  childcareHouseholdSupportPv: number;
+  collegeFundingPv: number;
+  grossSocialSecuritySurvivorPv: number;
+  creditedSocialSecuritySurvivorPv: number;
   spendingPvNeed: number;
   selectedDisplayNeed: number;
   incomeSensitivityNeed: number;
   nominalMortgagePrincipal: number;
+  realMortgageDemand: number;
+  mortgagePayoffDemandReal: number;
+  mortgageContinuePaymentsDemandReal: number;
+  selectedMortgageStrategy: MortgageStrategy;
   realMortgagePrincipal: number;
   liquidAssets: number;
   retirementAssetsBeforeHaircut: number;
@@ -83,6 +117,7 @@ export type YearlyRow = {
   exactNominalCoverageRequired: number;
   nominalRequiredCoverage: number;
   realEmployerCoverage: number;
+  creditedEmployerCoverage: number;
   nominalPersonalCoverage: number;
   realPersonalCoverage: number;
   /** @deprecated Legacy alias for realPersonalCoverage. Prefer realPersonalCoverage. */
@@ -119,4 +154,41 @@ export type CalculatorResult = {
   premiumPricingAnchor: number;
   capitalSufficiency: CapitalSufficiency;
   weightedFaceAmount: number;
+  recommended10YearTerm: number;
+  recommended15YearTerm: number;
+  recommended20YearTerm: number;
+  recommended30YearTerm: number;
+  totalInitialCoverage: number;
+  coverageGapByYear: { year: number; shortfall: number; surplus: number }[];
+  scenarioMatrix: ScenarioSummary[];
+};
+
+export type MortgageStrategyComparison = {
+  strategy: MortgageStrategy;
+  totalInitialCoverage: number;
+  worstGap: number;
+  firstDeficitYear: number | null;
+  mortgageDemandYear0: number;
+};
+
+export type ScenarioSummary = {
+  id: ScenarioId;
+  label: string;
+  realReturn: number;
+  employerCoverageCreditFactor: number;
+  socialSecurityCreditFactor: number;
+  includesCollegeFunding: boolean;
+  currentEmployerGroupCoverage: number;
+  creditedEmployerGroupCoverage: number;
+  personallyOwnedTermCoverage: number;
+  totalModeledCoverage: number;
+  estimatedShortfall: number;
+  estimatedSurplus: number;
+  collegeSensitivityDelta: number;
+  recommended10YearTerm: number;
+  recommended15YearTerm: number;
+  recommended20YearTerm: number;
+  recommended30YearTerm: number;
+  mortgageStrategy: MortgageStrategy;
+  mortgageStrategyComparison: MortgageStrategyComparison[];
 };

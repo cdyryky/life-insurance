@@ -7,14 +7,19 @@ import {
   calculateSurvivorPensionValue,
   deriveQuoteCostWeights,
   effectiveRetirementTaxHaircut,
+  estimateAnnualSocialSecuritySurvivorBenefit,
+  estimateSocialSecurityFamilyMaximum,
+  estimateSocialSecurityPia,
   exactNominalCoverageRequired,
   fisherRealRate,
   inflationFactor,
   pensionAccrualPercent,
   presentValueAnnuity,
   realCoverageAtYear,
+  presentValueRemainingMortgagePayments,
   remainingMortgagePrincipal,
   roundedNominalCoverageRequired,
+  SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM,
   solvePolicyLadder
 } from "./model";
 import type { YearlyRow } from "./types";
@@ -23,10 +28,18 @@ function testRow(year: number, nominalRequiredCoverage: number): YearlyRow {
   return {
     year,
     incomePvNeed: 0,
+    childcareHouseholdSupportPv: 0,
+    collegeFundingPv: 0,
+    grossSocialSecuritySurvivorPv: 0,
+    creditedSocialSecuritySurvivorPv: 0,
     spendingPvNeed: 0,
     selectedDisplayNeed: 0,
     incomeSensitivityNeed: 0,
     nominalMortgagePrincipal: 0,
+    realMortgageDemand: 0,
+    mortgagePayoffDemandReal: 0,
+    mortgageContinuePaymentsDemandReal: 0,
+    selectedMortgageStrategy: "payoff_at_death",
     realMortgagePrincipal: 0,
     liquidAssets: 0,
     retirementAssetsBeforeHaircut: 0,
@@ -49,6 +62,7 @@ function testRow(year: number, nominalRequiredCoverage: number): YearlyRow {
     exactNominalCoverageRequired: nominalRequiredCoverage,
     nominalRequiredCoverage,
     realEmployerCoverage: 0,
+    creditedEmployerCoverage: 0,
     nominalPersonalCoverage: 0,
     realPersonalCoverage: 0,
     personalLadderCoverage: 0,
@@ -66,6 +80,19 @@ describe("life insurance model", () => {
   it("formats policy active years as full zero-based coverage windows", () => {
     expect(activeYearsLabel(10)).toBe("0-9");
     expect(activeYearsLabel(30)).toBe("0-29");
+  });
+
+  it("uses the scenario planning defaults", () => {
+    expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
+    expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
+    expect(defaultInputs.employerCoverageCreditFactor).toBe(0.5);
+    expect(defaultInputs.socialSecurityCreditFactor).toBe(0.5);
+    expect(defaultInputs.realReturnBaseCase).toBe(0.035);
+    expect(defaultInputs.realReturnConservative).toBe(0.02);
+    expect(defaultInputs.realReturnOptimistic).toBe(0.05);
+    expect(defaultInputs.childcareHouseholdSupportAnnual).toBe(50000);
+    expect(defaultInputs.childcareSupportEndAge).toBe(14);
+    expect(defaultInputs.collegeFundingMode).toBe("scenario_only");
   });
 
   it("calculates the Fisher real discount rate", () => {
@@ -101,6 +128,58 @@ describe("life insurance model", () => {
     expect(twoMillion[20]).toBeCloseTo(630 / 369.74, 4);
     expect(twoMillion[30]).toBeCloseTo(1184.16 / 369.74, 4);
     expect(aboveTwoMillion).toEqual(twoMillion);
+  });
+
+  it("caps Social Security covered earnings before estimating PIA", () => {
+    const capped = estimateSocialSecurityPia(SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM);
+    const aboveCap = estimateSocialSecurityPia(600000);
+
+    expect(aboveCap).toBeCloseTo(capped, 8);
+    expect(capped).toBeGreaterThan(0);
+  });
+
+  it("caps combined Social Security survivor benefits at the family maximum", () => {
+    const inputs = {
+      ...defaultInputs,
+      socialSecurityCoveredAnnualEarnings: 600000,
+      socialSecurityEligibleChildren: 3,
+      youngestChildAge: 5
+    };
+    const pia = estimateSocialSecurityPia(inputs.socialSecurityCoveredAnnualEarnings);
+    const familyMaximumAnnual = estimateSocialSecurityFamilyMaximum(pia) * 12;
+
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 0)).toBeCloseTo(
+      familyMaximumAnnual,
+      0
+    );
+  });
+
+  it("separates caregiver and child Social Security survivor benefit horizons", () => {
+    const inputs = {
+      ...defaultInputs,
+      socialSecurityCoveredAnnualEarnings: 600000,
+      socialSecurityEligibleChildren: 1,
+      youngestChildAge: 15,
+      socialSecurityChildSecondarySchoolToAge19: false
+    };
+    const pia = estimateSocialSecurityPia(inputs.socialSecurityCoveredAnnualEarnings);
+
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 0)).toBeCloseTo(
+      pia * 1.5 * 12,
+      0
+    );
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 1)).toBeCloseTo(
+      pia * 0.75 * 12,
+      0
+    );
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 3)).toBe(0);
+    expect(
+      estimateAnnualSocialSecuritySurvivorBenefit(
+        { ...inputs, socialSecurityChildSecondarySchoolToAge19: true },
+        0,
+        3
+      )
+    ).toBeCloseTo(pia * 0.75 * 12, 0);
   });
 
   it("amortizes mortgage principal to zero at term end", () => {
@@ -179,6 +258,43 @@ describe("life insurance model", () => {
     expect(row.spendingPvNeed).toBeCloseTo(expectedSpendingPv, 0);
   });
 
+  it("models childcare support as a separate liability ending at the configured age", () => {
+    const result = buildBaseNeedRows({
+      ...defaultInputs,
+      youngestChildAge: 10,
+      childcareHouseholdSupportAnnual: 50000,
+      childcareSupportEndAge: 14
+    });
+
+    expect(result.rows[0].childcareHouseholdSupportPv).toBeCloseTo(
+      presentValueAnnuity(50000, 4, result.realDiscountRate),
+      0
+    );
+    expect(result.rows[4].childcareHouseholdSupportPv).toBe(0);
+    expect(result.rows[0].spendingPvNeed).toBeGreaterThan(0);
+  });
+
+  it("excludes college from base rows and includes it only for the college scenario", () => {
+    const result = calculateLadder({
+      ...defaultInputs,
+      annualCollegeFunding: 100000,
+      collegeStartYear: 10,
+      collegeEndYear: 18
+    });
+    const baseScenario = result.scenarioMatrix.find((scenario) => scenario.id === "base");
+    const collegeScenario = result.scenarioMatrix.find(
+      (scenario) => scenario.id === "base_with_college"
+    );
+
+    expect(result.rows[0].collegeFundingPv).toBe(0);
+    expect(baseScenario?.includesCollegeFunding).toBe(false);
+    expect(collegeScenario?.includesCollegeFunding).toBe(true);
+    expect(collegeScenario?.collegeSensitivityDelta).toBeGreaterThanOrEqual(0);
+    expect(
+      collegeScenario?.recommended15YearTerm ?? 0
+    ).toBeGreaterThanOrEqual(baseScenario?.recommended15YearTerm ?? 0);
+  });
+
   it("selects the chosen need basis without a dependent floor override", () => {
     const incomeRow = buildBaseNeedRows({
       ...defaultInputs,
@@ -205,6 +321,8 @@ describe("life insurance model", () => {
       mortgageBalance: 500000,
       mortgageAnnualRate: 0.06,
       mortgageYearsRemaining: 15,
+      childcareHouseholdSupportAnnual: 0,
+      socialSecurityEligibleChildren: 0,
       dependentDropOffAmount: 0
     };
     const incomeRow = buildBaseNeedRows({
@@ -219,7 +337,7 @@ describe("life insurance model", () => {
     expect(incomeRow.selectedDisplayNeed).toBeCloseTo(incomeRow.incomePvNeed, 0);
     expect(spendingRow.selectedDisplayNeed).toBeCloseTo(spendingRow.spendingPvNeed, 0);
     expect(incomeRow.spendingDemandReal).toBeCloseTo(
-      incomeRow.spendingPvNeed + incomeRow.realMortgagePrincipal,
+      incomeRow.spendingPvNeed + incomeRow.realMortgageDemand,
       0
     );
     expect(spendingRow.spendingNetNeedReal).toBeCloseTo(
@@ -391,6 +509,32 @@ describe("life insurance model", () => {
     );
   });
 
+  it("compares mortgage payoff against continuing payments and selects the lower demand", () => {
+    const inputs = {
+      ...defaultInputs,
+      mortgageBalance: 1500000,
+      mortgageAnnualRate: 0.065,
+      mortgageYearsRemaining: 15,
+      inflationRate: 0.025,
+      realReturnBaseCase: 0.035
+    };
+    const rows = buildBaseNeedRows(inputs, {
+      realReturnOverride: inputs.realReturnBaseCase
+    }).rows;
+
+    expect(rows[0].mortgageContinuePaymentsDemandReal).toBeCloseTo(
+      presentValueRemainingMortgagePayments(1500000, 0.065, 15, 0, 0.025, 0.035),
+      0
+    );
+    expect(rows[0].mortgagePayoffDemandReal).toBe(1500000);
+    expect(rows[0].mortgageContinuePaymentsDemandReal).toBeGreaterThan(
+      rows[0].mortgagePayoffDemandReal
+    );
+    expect(calculateLadder(inputs).rows[0].selectedMortgageStrategy).toBe(
+      "payoff_at_death"
+    );
+  });
+
   it("deflates employer coverage then drops after the configured end year", () => {
     const rows = buildBaseNeedRows({
       ...defaultInputs,
@@ -403,6 +547,25 @@ describe("life insurance model", () => {
     expect(rows[0].realEmployerCoverage).toBe(300000);
     expect(rows[5].realEmployerCoverage).toBeCloseTo(300000 / inflationFactor(0.03, 5), 0);
     expect(rows[6].realEmployerCoverage).toBe(0);
+  });
+
+  it("credits employer coverage by the configured portability factor", () => {
+    const base = buildBaseNeedRows({
+      ...defaultInputs,
+      employerCoverageAmount: 1000000,
+      employerCoverageCreditFactor: 0.5,
+      includeEmployerCoverage: true,
+      inflationRate: 0.03
+    }).rows[0];
+    const stress = calculateLadder({
+      ...defaultInputs,
+      employerCoverageAmount: 1000000
+    }).scenarioMatrix.find((scenario) => scenario.id === "conservative");
+
+    expect(base.realEmployerCoverage).toBe(1000000);
+    expect(base.creditedEmployerCoverage).toBe(500000);
+    expect(stress?.employerCoverageCreditFactor).toBe(0);
+    expect(stress?.creditedEmployerGroupCoverage).toBe(0);
   });
 
   it("deflates pension tax-adjusted value by death year", () => {
@@ -427,7 +590,7 @@ describe("life insurance model", () => {
 
     expect(row.capitalDemand).toBeCloseTo(row.spendingDemandReal, 0);
     expect(row.capitalSupply).toBeCloseTo(
-      row.accessibleAssets + row.realEmployerCoverage + row.realPersonalCoverage,
+      row.accessibleAssets + row.creditedEmployerCoverage + row.realPersonalCoverage,
       0
     );
     expect(row.capitalGap).toBeCloseTo(
@@ -594,6 +757,32 @@ describe("life insurance model", () => {
     expect(result.policies.find((policy) => policy.termYears === 30)?.costWeight).toBe(
       result.effectiveCostWeights[30]
     );
+  });
+
+  it("returns the required scenario matrix and applies scenario factors", () => {
+    const result = calculateLadder(defaultInputs);
+    const conservative = result.scenarioMatrix.find(
+      (scenario) => scenario.id === "conservative"
+    );
+    const base = result.scenarioMatrix.find((scenario) => scenario.id === "base");
+    const optimistic = result.scenarioMatrix.find(
+      (scenario) => scenario.id === "optimistic"
+    );
+
+    expect(result.scenarioMatrix.map((scenario) => scenario.label)).toContain(
+      "Optimistic / Lowest Coverage"
+    );
+    expect(conservative?.realReturn).toBe(defaultInputs.realReturnConservative);
+    expect(conservative?.employerCoverageCreditFactor).toBe(0);
+    expect(conservative?.socialSecurityCreditFactor).toBe(0);
+    expect(base?.employerCoverageCreditFactor).toBe(0.5);
+    expect(base?.socialSecurityCreditFactor).toBe(0.5);
+    expect(optimistic?.employerCoverageCreditFactor).toBe(1);
+    expect(optimistic?.socialSecurityCreditFactor).toBe(1);
+    expect(result.recommended10YearTerm).toBe(
+      result.policies.find((policy) => policy.termYears === 10)?.amount
+    );
+    expect(result.coverageGapByYear).toHaveLength(31);
   });
 
   it("manual mode preserves entered cost weights", () => {
