@@ -42,7 +42,7 @@ export const defaultInputs: CalculatorInputs = {
   mortgageStrategy: "payoff_at_death",
   employerCoverageAmount: 2000000,
   employerCoverageEndYear: 28,
-  employerCoverageCreditFactor: 0.5,
+  employerCoverageCreditFactor: 1.0,
   includeEmployerCoverage: true,
   socialSecurityCreditFactor: 0.5,
   socialSecurityEligibleChildren: 1,

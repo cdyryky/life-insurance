@@ -499,12 +499,8 @@ export function buildBaseNeedRows(
         inputs.inflationRate,
         realDiscountRate
       );
-    const lowerMortgageStrategy: MortgageStrategy =
-      mortgagePayoffDemandReal <= mortgageContinuePaymentsDemandReal
-        ? "payoff_at_death"
-        : "continue_monthly_payments";
     const selectedMortgageStrategy =
-      options.mortgageStrategy ?? lowerMortgageStrategy;
+      options.mortgageStrategy ?? inputs.mortgageStrategy;
     const realMortgageDemand =
       selectedMortgageStrategy === "payoff_at_death"
         ? mortgagePayoffDemandReal
@@ -885,22 +881,13 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
       employerCoverageCreditFactor: 1,
       socialSecurityCreditFactor: 1,
       includeCollegeFunding: false
-    },
-    {
-      id: "base_with_college",
-      label: "Base + College Sensitivity",
-      realReturn: inputs.realReturnBaseCase,
-      employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
-      socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
-      includeCollegeFunding: true
     }
   ];
 }
 
 function buildScenarioSummary(
   inputs: CalculatorInputs,
-  config: ScenarioConfig,
-  basePersonalCoverage: number
+  config: ScenarioConfig
 ): ScenarioSummary {
   const commonOptions: CalculationOptions = {
     realReturnOverride: config.realReturn,
@@ -917,10 +904,7 @@ function buildScenarioSummary(
     mortgageStrategy: "continue_monthly_payments"
   });
   const primary =
-    payoff.rows[0].mortgagePayoffDemandReal <=
-    payoff.rows[0].mortgageContinuePaymentsDemandReal
-      ? payoff
-      : continuePayments;
+    inputs.mortgageStrategy === "payoff_at_death" ? payoff : continuePayments;
   const firstRow = primary.rows[0];
   const estimatedShortfall = Math.max(0, -primary.capitalSufficiency.worstGap);
   const estimatedSurplus = Math.max(0, primary.capitalSufficiency.worstGap);
@@ -939,9 +923,6 @@ function buildScenarioSummary(
       firstRow.creditedEmployerCoverage + primary.totalInitialCoverage,
     estimatedShortfall,
     estimatedSurplus,
-    collegeSensitivityDelta: config.includeCollegeFunding
-      ? Math.max(0, primary.totalInitialCoverage - basePersonalCoverage)
-      : 0,
     recommended10YearTerm: primary.recommended10YearTerm,
     recommended15YearTerm: primary.recommended15YearTerm,
     recommended20YearTerm: primary.recommended20YearTerm,
@@ -982,12 +963,9 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     mortgageStrategy: "continue_monthly_payments"
   });
   const result =
-    payoff.rows[0].mortgagePayoffDemandReal <=
-    payoff.rows[0].mortgageContinuePaymentsDemandReal
-      ? payoff
-      : continuePayments;
+    inputs.mortgageStrategy === "payoff_at_death" ? payoff : continuePayments;
   const matrix = scenarioConfigs(inputs).map((config) =>
-    buildScenarioSummary(inputs, config, result.totalInitialCoverage)
+    buildScenarioSummary(inputs, config)
   );
 
   return {

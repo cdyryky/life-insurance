@@ -11,8 +11,7 @@ export type CollegeFundingMode = "scenario_only";
 export type ScenarioId =
   | "conservative"
   | "base"
-  | "optimistic"
-  | "base_with_college";
+  | "optimistic";
 
 export type CalculatorInputs = {
   insuredAge: number;
@@ -184,7 +183,6 @@ export type ScenarioSummary = {
   totalModeledCoverage: number;
   estimatedShortfall: number;
   estimatedSurplus: number;
-  collegeSensitivityDelta: number;
   recommended10YearTerm: number;
   recommended15YearTerm: number;
   recommended20YearTerm: number;

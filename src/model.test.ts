@@ -85,7 +85,7 @@ describe("life insurance model", () => {
   it("uses the scenario planning defaults", () => {
     expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
     expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
-    expect(defaultInputs.employerCoverageCreditFactor).toBe(0.5);
+    expect(defaultInputs.employerCoverageCreditFactor).toBe(1);
     expect(defaultInputs.socialSecurityCreditFactor).toBe(0.5);
     expect(defaultInputs.realReturnBaseCase).toBe(0.035);
     expect(defaultInputs.realReturnConservative).toBe(0.02);
@@ -274,25 +274,51 @@ describe("life insurance model", () => {
     expect(result.rows[0].spendingPvNeed).toBeGreaterThan(0);
   });
 
-  it("excludes college from base rows and includes it only for the college scenario", () => {
+  it("excludes college from default rows and active scenarios", () => {
     const result = calculateLadder({
       ...defaultInputs,
       annualCollegeFunding: 100000,
       collegeStartYear: 10,
       collegeEndYear: 18
     });
-    const baseScenario = result.scenarioMatrix.find((scenario) => scenario.id === "base");
-    const collegeScenario = result.scenarioMatrix.find(
-      (scenario) => scenario.id === "base_with_college"
-    );
 
     expect(result.rows[0].collegeFundingPv).toBe(0);
-    expect(baseScenario?.includesCollegeFunding).toBe(false);
-    expect(collegeScenario?.includesCollegeFunding).toBe(true);
-    expect(collegeScenario?.collegeSensitivityDelta).toBeGreaterThanOrEqual(0);
+    expect(result.scenarioMatrix).toHaveLength(3);
+    expect(result.scenarioMatrix.map((scenario) => scenario.id)).toEqual([
+      "conservative",
+      "base",
+      "optimistic"
+    ]);
     expect(
-      collegeScenario?.recommended15YearTerm ?? 0
-    ).toBeGreaterThanOrEqual(baseScenario?.recommended15YearTerm ?? 0);
+      result.scenarioMatrix.every((scenario) => !scenario.includesCollegeFunding)
+    ).toBe(true);
+  });
+
+  it("does not let dormant college inputs change visible ladder outputs", () => {
+    const base = calculateLadder(defaultInputs);
+    const changedCollegeInputs = calculateLadder({
+      ...defaultInputs,
+      annualCollegeFunding: 250000,
+      collegeStartYear: 4,
+      collegeEndYear: 8
+    });
+
+    expect(changedCollegeInputs.totalInitialCoverage).toBe(base.totalInitialCoverage);
+    expect(changedCollegeInputs.recommended10YearTerm).toBe(base.recommended10YearTerm);
+    expect(changedCollegeInputs.recommended15YearTerm).toBe(base.recommended15YearTerm);
+    expect(changedCollegeInputs.recommended20YearTerm).toBe(base.recommended20YearTerm);
+    expect(changedCollegeInputs.recommended30YearTerm).toBe(base.recommended30YearTerm);
+    expect(
+      changedCollegeInputs.scenarioMatrix.map((scenario) => ({
+        id: scenario.id,
+        personallyOwnedTermCoverage: scenario.personallyOwnedTermCoverage
+      }))
+    ).toEqual(
+      base.scenarioMatrix.map((scenario) => ({
+        id: scenario.id,
+        personallyOwnedTermCoverage: scenario.personallyOwnedTermCoverage
+      }))
+    );
   });
 
   it("selects the chosen need basis without a dependent floor override", () => {
@@ -509,7 +535,7 @@ describe("life insurance model", () => {
     );
   });
 
-  it("compares mortgage payoff against continuing payments and selects the lower demand", () => {
+  it("compares mortgage payoff against continuing payments and uses the selected strategy", () => {
     const inputs = {
       ...defaultInputs,
       mortgageBalance: 1500000,
@@ -518,19 +544,38 @@ describe("life insurance model", () => {
       inflationRate: 0.025,
       realReturnBaseCase: 0.035
     };
-    const rows = buildBaseNeedRows(inputs, {
+    const continueRows = buildBaseNeedRows({
+      ...inputs,
+      mortgageStrategy: "continue_monthly_payments"
+    }, {
       realReturnOverride: inputs.realReturnBaseCase
     }).rows;
+    const payoffRows = buildBaseNeedRows({
+      ...inputs,
+      mortgageStrategy: "continue_monthly_payments"
+    }, {
+      realReturnOverride: inputs.realReturnBaseCase,
+      mortgageStrategy: "payoff_at_death"
+    }).rows;
 
-    expect(rows[0].mortgageContinuePaymentsDemandReal).toBeCloseTo(
+    expect(continueRows[0].mortgageContinuePaymentsDemandReal).toBeCloseTo(
       presentValueRemainingMortgagePayments(1500000, 0.065, 15, 0, 0.025, 0.035),
       0
     );
-    expect(rows[0].mortgagePayoffDemandReal).toBe(1500000);
-    expect(rows[0].mortgageContinuePaymentsDemandReal).toBeGreaterThan(
-      rows[0].mortgagePayoffDemandReal
+    expect(continueRows[0].mortgagePayoffDemandReal).toBe(1500000);
+    expect(continueRows[0].mortgageContinuePaymentsDemandReal).toBeGreaterThan(
+      continueRows[0].mortgagePayoffDemandReal
     );
-    expect(calculateLadder(inputs).rows[0].selectedMortgageStrategy).toBe(
+    expect(continueRows[0].selectedMortgageStrategy).toBe("continue_monthly_payments");
+    expect(payoffRows[0].selectedMortgageStrategy).toBe("payoff_at_death");
+    expect(calculateLadder({
+      ...inputs,
+      mortgageStrategy: "continue_monthly_payments"
+    }).rows[0].selectedMortgageStrategy).toBe("continue_monthly_payments");
+    expect(calculateLadder({
+      ...inputs,
+      mortgageStrategy: "payoff_at_death"
+    }).rows[0].selectedMortgageStrategy).toBe(
       "payoff_at_death"
     );
   });
@@ -775,10 +820,20 @@ describe("life insurance model", () => {
     expect(conservative?.realReturn).toBe(defaultInputs.realReturnConservative);
     expect(conservative?.employerCoverageCreditFactor).toBe(0);
     expect(conservative?.socialSecurityCreditFactor).toBe(0);
-    expect(base?.employerCoverageCreditFactor).toBe(0.5);
+    expect(base?.employerCoverageCreditFactor).toBe(1);
     expect(base?.socialSecurityCreditFactor).toBe(0.5);
     expect(optimistic?.employerCoverageCreditFactor).toBe(1);
     expect(optimistic?.socialSecurityCreditFactor).toBe(1);
+    expect(result.scenarioMatrix.map((scenario) => scenario.id)).toEqual([
+      "conservative",
+      "base",
+      "optimistic"
+    ]);
+    expect(
+      result.scenarioMatrix.every(
+        (scenario) => scenario.mortgageStrategyComparison.length === 2
+      )
+    ).toBe(true);
     expect(result.recommended10YearTerm).toBe(
       result.policies.find((policy) => policy.termYears === 10)?.amount
     );

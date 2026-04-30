@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
   Download,
   FileText,
   Menu,
@@ -16,6 +17,7 @@ import { calculateLadder } from "./model";
 import type {
   CalculatorInputs,
   CalculatorResult,
+  MortgageStrategy,
   NeedBasis,
   PremiumWeightMode,
   TermLength,
@@ -141,11 +143,13 @@ function Segmented<T extends string>({
 function Toggle({
   checked,
   onChange,
-  label
+  label,
+  description
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
+  description?: string;
 }) {
   return (
     <label className="toggle">
@@ -155,8 +159,36 @@ function Toggle({
         onChange={(event) => onChange(event.target.checked)}
       />
       <span />
-      {label}
+      <strong>{label}</strong>
+      {description ? <small>{description}</small> : null}
     </label>
+  );
+}
+
+function AccordionPanel({
+  title,
+  children
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="accordionPanel">
+      <summary>
+        <span>{title}</span>
+        <ChevronDown size={16} />
+      </summary>
+      <div className="accordionContent">{children}</div>
+    </details>
+  );
+}
+
+function ScenarioBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="scenarioBadge">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -460,25 +492,108 @@ export function App() {
 
       <section className="workspace">
         <aside className="controls">
-          <section className="panel" id="assumptions">
-            <SectionTitle index={1}>Select target</SectionTitle>
-            <Segmented<NeedBasis>
-              value={inputs.selectedNeedBasis}
-              onChange={(value) => setInput("selectedNeedBasis", value)}
-              options={[
-                { value: "income", label: "Income PV" },
-                { value: "spending", label: "Spending PV" }
-              ]}
-            />
-            <Toggle
-              checked={inputs.includeEmployerCoverage}
-              onChange={(checked) => setInput("includeEmployerCoverage", checked)}
-              label="Include nominal TPMG/employer coverage"
-            />
+          <section className="panel quickPanel" id="assumptions">
+            <SectionTitle index={1}>Quick iteration</SectionTitle>
+
+            <div className="controlBlock">
+              <span className="controlLabel">Target basis</span>
+              <Segmented<NeedBasis>
+                value={inputs.selectedNeedBasis}
+                onChange={(value) => setInput("selectedNeedBasis", value)}
+                options={[
+                  { value: "spending", label: "Spending need" },
+                  { value: "income", label: "Income replacement" }
+                ]}
+              />
+            </div>
+
+            <div className="controlBlock">
+              <span className="controlLabel">Mortgage strategy</span>
+              <Segmented<MortgageStrategy>
+                value={inputs.mortgageStrategy}
+                onChange={(value) => setInput("mortgageStrategy", value)}
+                options={[
+                  { value: "payoff_at_death", label: "Pay off mortgage" },
+                  { value: "continue_monthly_payments", label: "Keep payments" }
+                ]}
+              />
+            </div>
+
+            <div className="featureToggles" aria-label="Feature toggles">
+              <Toggle
+                checked={inputs.includeEmployerCoverage}
+                onChange={(checked) => setInput("includeEmployerCoverage", checked)}
+                label="Employer coverage"
+                description="Credit current TPMG/employer group coverage in modeled supply."
+              />
+              <Toggle
+                checked={inputs.includeSurvivorPension}
+                onChange={(checked) => setInput("includeSurvivorPension", checked)}
+                label="Survivor pension"
+                description="Use the tax-adjusted survivor pension as a capital offset."
+              />
+              <Toggle
+                checked={inputs.socialSecurityChildSecondarySchoolToAge19}
+                onChange={(checked) => setInput("socialSecurityChildSecondarySchoolToAge19", checked)}
+                label="SS child benefit to age 19"
+                description="Extend child survivor benefits through secondary school eligibility."
+              />
+            </div>
+
+            <div className="stressPanel" aria-label="Stress-test assumptions">
+              <div className="stressHeader">
+                <h3>Stress-test assumptions</h3>
+                <p>These drive the existing scenario matrix; no preset is applied to the base inputs.</p>
+              </div>
+
+              <article className="stressScenario">
+                <h4>Conservative / Max Safety</h4>
+                <RateField
+                  label="Real return"
+                  value={inputs.realReturnConservative}
+                  onChange={(v) => setInput("realReturnConservative", v)}
+                />
+                <div className="scenarioBadges">
+                  <ScenarioBadge label="Employer credit" value={percentFormatter.format(0)} />
+                  <ScenarioBadge label="SS credit" value={percentFormatter.format(0)} />
+                </div>
+              </article>
+
+              <article className="stressScenario">
+                <h4>Base Case</h4>
+                <RateField
+                  label="Real return"
+                  value={inputs.realReturnBaseCase}
+                  onChange={(v) => setInput("realReturnBaseCase", v)}
+                />
+                <RateField
+                  label="Employer credit"
+                  value={inputs.employerCoverageCreditFactor}
+                  onChange={(v) => setInput("employerCoverageCreditFactor", Math.min(1, Math.max(0, v)))}
+                />
+                <RateField
+                  label="SS credit"
+                  value={inputs.socialSecurityCreditFactor}
+                  onChange={(v) => setInput("socialSecurityCreditFactor", Math.min(1, Math.max(0, v)))}
+                />
+              </article>
+
+              <article className="stressScenario">
+                <h4>Optimistic / Lowest Coverage</h4>
+                <RateField
+                  label="Real return"
+                  value={inputs.realReturnOptimistic}
+                  onChange={(v) => setInput("realReturnOptimistic", v)}
+                />
+                <div className="scenarioBadges">
+                  <ScenarioBadge label="Employer credit" value={percentFormatter.format(1)} />
+                  <ScenarioBadge label="SS credit" value={percentFormatter.format(1)} />
+                </div>
+              </article>
+            </div>
           </section>
 
-          <section className="panel">
-            <SectionTitle index={2}>Income & Spending</SectionTitle>
+          <AccordionPanel title="Household & spending">
             <Field label="Insured age" value={inputs.insuredAge} onChange={(v) => setInput("insuredAge", v)} />
             <Field label="Spouse age" value={inputs.spouseAge} onChange={(v) => setInput("spouseAge", v)} />
             <Field label="Retirement age" value={inputs.retirementAge} onChange={(v) => setInput("retirementAge", v)} />
@@ -513,9 +628,6 @@ export function App() {
               help="Annual reduction to spending need after the drop-off year."
             />
             <RateField label="Inflation rate" value={inputs.inflationRate} onChange={(v) => setInput("inflationRate", v)} />
-            <RateField label="Base real return" value={inputs.realReturnBaseCase} onChange={(v) => setInput("realReturnBaseCase", v)} />
-            <RateField label="Conservative real return" value={inputs.realReturnConservative} onChange={(v) => setInput("realReturnConservative", v)} />
-            <RateField label="Optimistic real return" value={inputs.realReturnOptimistic} onChange={(v) => setInput("realReturnOptimistic", v)} />
             <Field
               label="Childcare/household support"
               value={inputs.childcareHouseholdSupportAnnual}
@@ -530,21 +642,10 @@ export function App() {
               onChange={(v) => setInput("childcareSupportEndAge", v)}
               help="Support ends when the youngest child reaches this age."
             />
-            <Field
-              label="College sensitivity annual"
-              value={inputs.annualCollegeFunding}
-              onChange={(v) => setInput("annualCollegeFunding", v)}
-              prefix="$"
-              step={5000}
-              help="Excluded from base; included only in the college sensitivity."
-            />
-            <Field label="College start year" value={inputs.collegeStartYear} onChange={(v) => setInput("collegeStartYear", v)} />
-            <Field label="College end year" value={inputs.collegeEndYear} onChange={(v) => setInput("collegeEndYear", v)} />
             <RateField label="Nominal discount rate" value={inputs.nominalDiscountRate} onChange={(v) => setInput("nominalDiscountRate", v)} help="Used outside the scenario real-return matrix." />
-          </section>
+          </AccordionPanel>
 
-          <section className="panel">
-            <SectionTitle index={3}>Assets</SectionTitle>
+          <AccordionPanel title="Assets & retirement taxes">
             <Field label="Liquid/investment assets" value={inputs.currentLiquidAssets} onChange={(v) => setInput("currentLiquidAssets", v)} prefix="$" step={25000} />
             <Field label="Annual non-retirement savings" value={inputs.annualNonRetirementSavings} onChange={(v) => setInput("annualNonRetirementSavings", v)} prefix="$" step={5000} />
             <RateField label="Nominal asset growth" value={inputs.nominalAssetGrowthRate} onChange={(v) => setInput("nominalAssetGrowthRate", v)} />
@@ -567,15 +668,9 @@ export function App() {
               value={inputs.postTaxRetirementHaircut}
               onChange={(v) => setInput("postTaxRetirementHaircut", Math.min(0.95, Math.max(0, v)))}
             />
-          </section>
+          </AccordionPanel>
 
-          <section className="panel">
-            <SectionTitle index={4}>Survivor Pension</SectionTitle>
-            <Toggle
-              checked={inputs.includeSurvivorPension}
-              onChange={(checked) => setInput("includeSurvivorPension", checked)}
-              label="Include survivor pension capital offset"
-            />
+          <AccordionPanel title="Survivor pension details">
             <Field
               label="Current service years"
               value={inputs.pensionCurrentServiceYears}
@@ -621,10 +716,9 @@ export function App() {
               value={inputs.pensionEarlyReductionRate}
               onChange={(v) => setInput("pensionEarlyReductionRate", Math.min(1, Math.max(0, v)))}
             />
-          </section>
+          </AccordionPanel>
 
-          <section className="panel">
-            <SectionTitle index={5}>Mortgage & Employer</SectionTitle>
+          <AccordionPanel title="Mortgage, employer, and Social Security">
             <Field label="Mortgage balance" value={inputs.mortgageBalance} onChange={(v) => setInput("mortgageBalance", v)} prefix="$" step={50000} />
             <RateField label="Mortgage rate" value={inputs.mortgageAnnualRate} onChange={(v) => setInput("mortgageAnnualRate", v)} />
             <Field label="Mortgage years remaining" value={inputs.mortgageYearsRemaining} onChange={(v) => setInput("mortgageYearsRemaining", v)} />
@@ -635,12 +729,6 @@ export function App() {
               prefix="$"
               step={100000}
               help="Nominal coverage amount deflated by death year for real-dollar sufficiency."
-            />
-            <RateField
-              label="Base employer credit"
-              value={inputs.employerCoverageCreditFactor}
-              onChange={(v) => setInput("employerCoverageCreditFactor", Math.min(1, Math.max(0, v)))}
-              help="Base case credits only part of group coverage for portability risk."
             />
             <Field
               label="Employer coverage end year"
@@ -666,20 +754,9 @@ export function App() {
               value={inputs.youngestChildAge}
               onChange={(v) => setInput("youngestChildAge", v)}
             />
-            <RateField
-              label="Base SS credit"
-              value={inputs.socialSecurityCreditFactor}
-              onChange={(v) => setInput("socialSecurityCreditFactor", Math.min(1, Math.max(0, v)))}
-            />
-            <Toggle
-              checked={inputs.socialSecurityChildSecondarySchoolToAge19}
-              onChange={(checked) => setInput("socialSecurityChildSecondarySchoolToAge19", checked)}
-              label="Extend child SS benefit to age 19"
-            />
-          </section>
+          </AccordionPanel>
 
-          <section className="panel">
-            <SectionTitle index={6}>Premium Pricing</SectionTitle>
+          <AccordionPanel title="Premium pricing & solver weights">
             <Segmented<PremiumWeightMode>
               value={inputs.premiumWeightMode}
               onChange={(value) => setInput("premiumWeightMode", value)}
@@ -713,7 +790,7 @@ export function App() {
             >
               <RefreshCcw size={16} /> Reset to quotes
             </button>
-          </section>
+          </AccordionPanel>
         </aside>
 
         <section className="results">
@@ -748,7 +825,7 @@ export function App() {
             <div className="panelHeader">
               <div>
                 <h2>Scenario Matrix</h2>
-                <span>Base excludes college; the college row shows sensitivity only.</span>
+                <span>Primary recommendation uses the selected mortgage strategy; comparison shows payoff versus continuing payments.</span>
               </div>
             </div>
             <div className="tableWrap scenarioTable">
@@ -764,9 +841,8 @@ export function App() {
                     <th>Personal term</th>
                     <th>Total modeled</th>
                     <th>Shortfall/surplus</th>
-                    <th>Mortgage default</th>
-                    <th>Payoff / Continue</th>
-                    <th>College delta</th>
+                    <th>Primary recommendation</th>
+                    <th>Comparison: Payoff / Continue</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -797,17 +873,12 @@ export function App() {
                           {money(payoff?.totalInitialCoverage ?? 0)} /{" "}
                           {money(continuePayments?.totalInitialCoverage ?? 0)}
                         </td>
-                        <td>{money(scenario.collegeSensitivityDelta)}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-            <p className="panelNote">
-              College is not insured in the base ladder; the sensitivity assumes
-              tuition is not fully cash-flowed from survivor income or existing assets.
-            </p>
           </section>
 
           <section className="panel ladderPanel">
