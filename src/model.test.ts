@@ -5,6 +5,7 @@ import {
   buildBaseNeedRows,
   calculateLadder,
   calculateSurvivorPensionValue,
+  deriveQuoteCostWeights,
   effectiveRetirementTaxHaircut,
   exactNominalCoverageRequired,
   fisherRealRate,
@@ -79,6 +80,27 @@ describe("life insurance model", () => {
     expect(exactNominalCoverageRequired(100000, 0.025, 2)).toBeCloseTo(105062.5, 1);
     expect(roundedNominalCoverageRequired(100000, 0.025, 2, 100000)).toBe(200000);
     expect(roundedNominalCoverageRequired(100000.2, 0, 0, 0)).toBe(100001);
+  });
+
+  it("derives quote cost weights from interpolated premiums", () => {
+    const zero = deriveQuoteCostWeights(0);
+    const oneMillion = deriveQuoteCostWeights(1000000);
+    const onePointFiveMillion = deriveQuoteCostWeights(1500000);
+    const twoMillion = deriveQuoteCostWeights(2000000);
+    const aboveTwoMillion = deriveQuoteCostWeights(5000000);
+
+    expect(zero[10]).toBe(1);
+    expect(Number.isFinite(zero[30])).toBe(true);
+    expect(oneMillion[15]).toBeCloseTo(267.6 / 218.9, 4);
+    expect(oneMillion[20]).toBeCloseTo(350 / 218.9, 4);
+    expect(oneMillion[30]).toBeCloseTo(630 / 218.9, 4);
+    expect(onePointFiveMillion[15]).toBeCloseTo(366.26 / 294.32, 4);
+    expect(onePointFiveMillion[20]).toBeCloseTo(490 / 294.32, 4);
+    expect(onePointFiveMillion[30]).toBeCloseTo(907.08 / 294.32, 4);
+    expect(twoMillion[15]).toBeCloseTo(464.92 / 369.74, 4);
+    expect(twoMillion[20]).toBeCloseTo(630 / 369.74, 4);
+    expect(twoMillion[30]).toBeCloseTo(1184.16 / 369.74, 4);
+    expect(aboveTwoMillion).toEqual(twoMillion);
   });
 
   it("amortizes mortgage principal to zero at term end", () => {
@@ -529,6 +551,7 @@ describe("life insurance model", () => {
       ...defaultInputs,
       coverageIncrement: 100000,
       maxCoveragePerTerm: 100000,
+      premiumWeightMode: "manual",
       costWeights: { 10: 10, 15: 10, 20: 10, 30: 1 }
     });
 
@@ -541,11 +564,13 @@ describe("life insurance model", () => {
     const lowLongTermCost = calculateLadder({
       ...defaultInputs,
       includeEmployerCoverage: false,
+      premiumWeightMode: "manual",
       costWeights: { 10: 10, 15: 10, 20: 10, 30: 1 }
     });
     const highLongTermCost = calculateLadder({
       ...defaultInputs,
       includeEmployerCoverage: false,
+      premiumWeightMode: "manual",
       costWeights: { 10: 1, 15: 1.4, 20: 2.2, 30: 10 }
     });
     const amount30LowCost =
@@ -554,5 +579,32 @@ describe("life insurance model", () => {
       highLongTermCost.policies.find((policy) => policy.termYears === 30)?.amount ?? 0;
 
     expect(amount30LowCost).toBeGreaterThanOrEqual(amount30HighCost);
+  });
+
+  it("quote-derived mode uses effective quote weights in policy output", () => {
+    const result = calculateLadder({
+      ...defaultInputs,
+      premiumWeightMode: "quote-derived",
+      costWeights: { 10: 10, 15: 10, 20: 10, 30: 10 }
+    });
+
+    expect(result.premiumPricingAnchor).toBeGreaterThan(0);
+    expect(result.effectiveCostWeights[10]).toBe(1);
+    expect(result.effectiveCostWeights[30]).toBeLessThan(10);
+    expect(result.policies.find((policy) => policy.termYears === 30)?.costWeight).toBe(
+      result.effectiveCostWeights[30]
+    );
+  });
+
+  it("manual mode preserves entered cost weights", () => {
+    const manualWeights = { 10: 1, 15: 2, 20: 3, 30: 4 };
+    const result = calculateLadder({
+      ...defaultInputs,
+      premiumWeightMode: "manual",
+      costWeights: manualWeights
+    });
+
+    expect(result.effectiveCostWeights).toEqual(manualWeights);
+    expect(result.policies.find((policy) => policy.termYears === 30)?.costWeight).toBe(4);
   });
 });

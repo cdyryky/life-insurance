@@ -9,6 +9,22 @@ import type {
 
 const TERMS: TermLength[] = [10, 15, 20, 30];
 const HORIZON_YEARS = 40;
+const QUOTE_ANCHOR_LOW = 1000000;
+const QUOTE_ANCHOR_HIGH = 2000000;
+const TERM4SALE_QUOTES: Record<typeof QUOTE_ANCHOR_LOW | typeof QUOTE_ANCHOR_HIGH, Record<TermLength, number>> = {
+  [QUOTE_ANCHOR_LOW]: {
+    10: 218.9,
+    15: 267.6,
+    20: 350,
+    30: 630
+  },
+  [QUOTE_ANCHOR_HIGH]: {
+    10: 369.74,
+    15: 464.92,
+    20: 630,
+    30: 1184.16
+  }
+};
 
 export function fisherRealRate(nominalRate: number, inflationRate: number) {
   return (1 + nominalRate) / (1 + inflationRate) - 1;
@@ -65,6 +81,56 @@ export function presentValueAnnuity(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+export function peakRequiredCoverage(rows: YearlyRow[]) {
+  return Math.max(
+    0,
+    ...rows
+      .filter((row) => row.year < 30)
+      .map((row) => row.nominalRequiredCoverage)
+  );
+}
+
+export function deriveQuoteCostWeights(peakCoverage: number): Record<TermLength, number> {
+  const factor = clamp(
+    (Math.max(0, peakCoverage) - QUOTE_ANCHOR_LOW) /
+      (QUOTE_ANCHOR_HIGH - QUOTE_ANCHOR_LOW),
+    0,
+    1
+  );
+  const interpolatedPremiums = TERMS.reduce((premiums, term) => {
+    premiums[term] =
+      TERM4SALE_QUOTES[QUOTE_ANCHOR_LOW][term] +
+      factor *
+        (TERM4SALE_QUOTES[QUOTE_ANCHOR_HIGH][term] -
+          TERM4SALE_QUOTES[QUOTE_ANCHOR_LOW][term]);
+    return premiums;
+  }, {} as Record<TermLength, number>);
+  const baselinePremium = Math.max(0.01, interpolatedPremiums[10]);
+
+  return TERMS.reduce((weights, term) => {
+    weights[term] = term === 10 ? 1 : interpolatedPremiums[term] / baselinePremium;
+    return weights;
+  }, {} as Record<TermLength, number>);
+}
+
+export function effectiveCostWeightsForRows(
+  rows: YearlyRow[],
+  inputs: CalculatorInputs
+) {
+  if (inputs.premiumWeightMode === "manual") {
+    return {
+      anchor: peakRequiredCoverage(rows),
+      weights: inputs.costWeights
+    };
+  }
+
+  const anchor = peakRequiredCoverage(rows);
+  return {
+    anchor,
+    weights: deriveQuoteCostWeights(anchor)
+  };
 }
 
 export function pensionAccrualPercent(serviceYears: number) {
@@ -485,7 +551,12 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     realRetirementGrowthRate,
     effectiveRetirementTaxHaircut
   } = buildBaseNeedRows(inputs);
-  const solved = solvePolicyLadder(rows, inputs);
+  const effectivePricing = effectiveCostWeightsForRows(rows, inputs);
+  const solverInputs = {
+    ...inputs,
+    costWeights: effectivePricing.weights
+  };
+  const solved = solvePolicyLadder(rows, solverInputs);
   const warnings: SolverWarning[] = [];
 
   const projectedRows = rows.map((row) => {
@@ -545,6 +616,8 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     realAssetGrowthRate,
     realRetirementGrowthRate,
     effectiveRetirementTaxHaircut,
+    effectiveCostWeights: effectivePricing.weights,
+    premiumPricingAnchor: effectivePricing.anchor,
     capitalSufficiency: {
       worstGap: worstRow.capitalGap,
       worstGapYear: worstRow.year,

@@ -16,6 +16,7 @@ import type {
   CalculatorInputs,
   CalculatorResult,
   NeedBasis,
+  PremiumWeightMode,
   TermLength,
   YearlyRow
 } from "./types";
@@ -304,6 +305,14 @@ export function App() {
     setInputs((current) => ({ ...current, [key]: value }));
   };
 
+  const setPremiumWeight = (term: TermLength, value: number) => {
+    setInputs((current) => ({
+      ...current,
+      premiumWeightMode: "manual",
+      costWeights: { ...result.effectiveCostWeights, [term]: value }
+    }));
+  };
+
   const reportRows = useMemo(() => rowsToPrint.filter((row) => row.year % 5 === 0), [rowsToPrint]);
   const capitalSufficiencyPercent = Math.max(
     0,
@@ -554,18 +563,40 @@ export function App() {
           </section>
 
           <section className="panel">
-            <SectionTitle index={6}>Premium Cost Weights</SectionTitle>
+            <SectionTitle index={6}>Premium Pricing</SectionTitle>
+            <Segmented<PremiumWeightMode>
+              value={inputs.premiumWeightMode}
+              onChange={(value) => setInput("premiumWeightMode", value)}
+              options={[
+                { value: "quote-derived", label: "Quote-derived" },
+                { value: "manual", label: "Manual" }
+              ]}
+            />
+            {inputs.premiumWeightMode === "quote-derived" && (
+              <div className="quoteWeightSummary">
+                <span>Pricing anchor</span>
+                <strong>{money(result.premiumPricingAnchor)}</strong>
+                <small>
+                  $1M-$2M TERM4SALE, Preferred Plus, male, non-smoker
+                </small>
+              </div>
+            )}
             {TERMS.map((term) => (
               <Field
                 key={term}
                 label={`${term}-year weight`}
-                value={inputs.costWeights[term]}
-                onChange={(value) =>
-                  setInput("costWeights", { ...inputs.costWeights, [term]: value })
-                }
+                value={result.effectiveCostWeights[term]}
+                onChange={(value) => setPremiumWeight(term, value)}
                 step={0.1}
               />
             ))}
+            <button
+              type="button"
+              className="secondaryButton fullWidthButton"
+              onClick={() => setInput("premiumWeightMode", "quote-derived")}
+            >
+              <RefreshCcw size={16} /> Reset to quotes
+            </button>
           </section>
         </aside>
 
@@ -590,7 +621,7 @@ export function App() {
                   <strong>{money(policy.amount)}</strong>
                   <small>
                     Years {activeYearsLabel(policy.termYears)} · Weight{" "}
-                    {policy.costWeight.toFixed(1)}
+                    {policy.costWeight.toFixed(2)}
                   </small>
                 </article>
               ))}
@@ -622,7 +653,7 @@ export function App() {
                       <td>Level Term</td>
                       <td>{policy.termYears} years</td>
                       <td>{activeYearsLabel(policy.termYears)}</td>
-                      <td>{policy.costWeight.toFixed(1)}</td>
+                      <td>{policy.costWeight.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

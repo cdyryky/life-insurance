@@ -2,6 +2,8 @@ export type NeedBasis = "income" | "spending";
 
 export type TermLength = 10 | 15 | 20 | 30;
 
+export type PremiumWeightMode = "quote-derived" | "manual";
+
 export type CalculatorInputs = {
   insuredAge: number;
   spouseAge: number;
@@ -41,6 +43,7 @@ export type CalculatorInputs = {
   selectedNeedBasis: NeedBasis;
   coverageIncrement: number;
   maxCoveragePerTerm: number;
+  premiumWeightMode: PremiumWeightMode;
   costWeights: Record<TermLength, number>;
 };
 
@@ -112,6 +115,8 @@ export type CalculatorResult = {
   realAssetGrowthRate: number;
   realRetirementGrowthRate: number;
   effectiveRetirementTaxHaircut: number;
+  effectiveCostWeights: Record<TermLength, number>;
+  premiumPricingAnchor: number;
   capitalSufficiency: CapitalSufficiency;
   weightedFaceAmount: number;
 };

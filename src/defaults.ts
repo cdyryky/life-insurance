@@ -39,10 +39,11 @@ export const defaultInputs: CalculatorInputs = {
   selectedNeedBasis: "spending",
   coverageIncrement: 100000,
   maxCoveragePerTerm: 10000000,
+  premiumWeightMode: "quote-derived",
   costWeights: {
     10: 1,
-    15: 1.4,
-    20: 2.2,
-    30: 4.5
+    15: 1.25,
+    20: 1.65,
+    30: 3.05
   }
 };
