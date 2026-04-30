@@ -265,6 +265,49 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
   );
 }
 
+function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
+  const displayRows = rows.slice(0, 31);
+
+  return (
+    <div className="tableWrap needCoverageTable">
+      <table>
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Income PV</th>
+            <th>Spending PV</th>
+            <th>Mortgage</th>
+            <th>Accessible assets</th>
+            <th>Employer</th>
+            <th>Net need</th>
+            <th>Personal ladder</th>
+            <th>Total coverage</th>
+            <th>Under</th>
+            <th>Over</th>
+          </tr>
+        </thead>
+        <tbody>
+          {displayRows.map((row) => (
+            <tr key={row.year}>
+              <td>{row.year}</td>
+              <td>{money(row.incomePvNeed)}</td>
+              <td>{money(row.spendingPvNeed)}</td>
+              <td>{money(row.realMortgagePrincipal)}</td>
+              <td>{money(row.accessibleAssets)}</td>
+              <td>{money(row.realEmployerCoverage)}</td>
+              <td>{money(row.spendingNetNeedReal)}</td>
+              <td>{money(row.realPersonalCoverage)}</td>
+              <td>{money(row.totalCoverage)}</td>
+              <td>{money(row.undercoverage)}</td>
+              <td>{money(row.overcoverage)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function useWorkerCalculation(inputs: CalculatorInputs) {
   const [result, setResult] = useState<CalculatorResult>(() => calculateLadder(inputs));
   const workerRef = useRef<Worker | null>(null);
@@ -293,6 +336,7 @@ function useWorkerCalculation(inputs: CalculatorInputs) {
 
 export function App() {
   const [inputs, setInputs] = useState<CalculatorInputs>(defaultInputs);
+  const [needCoverageView, setNeedCoverageView] = useState<"chart" | "table">("chart");
   const result = useWorkerCalculation(inputs);
   const rowsToPrint = result.rows.slice(0, 31);
   const firstRow = result.rows[0];
@@ -687,8 +731,8 @@ export function App() {
               <h2>Need and Coverage by Year</h2>
               <div className="chartActions">
                 <Segmented<"chart" | "table">
-                  value="chart"
-                  onChange={() => undefined}
+                  value={needCoverageView}
+                  onChange={setNeedCoverageView}
                   options={[
                     { value: "chart", label: "Chart" },
                     { value: "table", label: "Table" }
@@ -697,7 +741,11 @@ export function App() {
                 <span>Real present-year dollars</span>
               </div>
             </div>
-            <Chart rows={result.rows} />
+            {needCoverageView === "chart" ? (
+              <Chart rows={result.rows} />
+            ) : (
+              <NeedCoverageTable rows={result.rows} />
+            )}
           </section>
 
           <section className="panel">

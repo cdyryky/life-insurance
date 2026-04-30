@@ -726,6 +726,10 @@ tfoot td {
   border-radius: 0 0 8px 8px;
 }
 
+.needCoverageTable table {
+  min-width: 1180px;
+}
+
 .reportMeta {
   margin-bottom: 12px;
 }
