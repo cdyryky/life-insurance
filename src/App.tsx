@@ -10,6 +10,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { defaultInputs } from "./defaults";
+import { MethodologyPanel } from "./components/MethodologyPanel";
 import { activeYearsLabel } from "./format";
 import { calculateLadder } from "./model";
 import type {
@@ -366,6 +367,7 @@ export function App() {
         <nav className="mainNav" aria-label="Primary navigation">
           <a className="active" href="#dashboard">Dashboard</a>
           <a href="#assumptions">Assumptions</a>
+          <a href="#methodology">Methodology</a>
           <a href="#report">Reports</a>
           <a href="#help">Help</a>
         </nav>
@@ -735,6 +737,8 @@ export function App() {
               </article>
             </div>
           </section>
+
+          <MethodologyPanel inputs={inputs} result={result} />
 
           <section className="panel">
             <div className="panelHeader">

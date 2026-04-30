@@ -1,0 +1,475 @@
+import { useMemo, useState } from "react";
+import type { CalculatorInputs, CalculatorResult, YearlyRow } from "../types";
+
+type MethodologyPanelProps = {
+  inputs: CalculatorInputs;
+  result: CalculatorResult;
+};
+
+type MethodologyTab = "overview" | "needs" | "offsets" | "solver" | "limits";
+
+const tabs: { id: MethodologyTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "needs", label: "Needs" },
+  { id: "offsets", label: "Offsets" },
+  { id: "solver", label: "Ladder Solver" },
+  { id: "limits", label: "Warnings & Limits" }
+];
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0
+});
+
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 2
+});
+
+function money(value: number) {
+  if (Math.abs(value) >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1000) return `$${Math.round(value / 1000)}k`;
+  return currencyFormatter.format(value);
+}
+
+function percent(value: number) {
+  return percentFormatter.format(value);
+}
+
+function Formula({ children }: { children: string }) {
+  return <code className="methodologyFormula">{children}</code>;
+}
+
+function MetricCard({
+  label,
+  value,
+  note
+}: {
+  label: string;
+  value: string;
+  note?: string;
+}) {
+  return (
+    <article>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {note ? <small>{note}</small> : null}
+    </article>
+  );
+}
+
+function TraceRow({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="traceRow">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {note ? <small>{note}</small> : null}
+    </div>
+  );
+}
+
+function FieldFormula({
+  name,
+  formula,
+  explanation
+}: {
+  name: string;
+  formula: string;
+  explanation: string;
+}) {
+  return (
+    <article className="formulaCard">
+      <h4>{name}</h4>
+      <Formula>{formula}</Formula>
+      <p>{explanation}</p>
+    </article>
+  );
+}
+
+function firstExistingRow(rows: YearlyRow[], index: number) {
+  return rows[index] ?? rows[0];
+}
+
+export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
+  const [activeTab, setActiveTab] = useState<MethodologyTab>("overview");
+  const year0 = firstExistingRow(result.rows, 0);
+  const worstGapRow = useMemo(
+    () => firstExistingRow(result.rows, result.capitalSufficiency.worstGapYear),
+    [result.rows, result.capitalSufficiency.worstGapYear]
+  );
+  const residualWarning = result.warnings.some(
+    (warning) => warning.kind === "residual-after-30"
+  );
+  const infeasibleWarning = result.warnings.some(
+    (warning) => warning.kind === "infeasible-cap"
+  );
+  const totalPersonalCoverage = result.policies.reduce(
+    (sum, policy) => sum + policy.amount,
+    0
+  );
+
+  const scenarioMetrics = (
+    <div className="methodologyMetrics">
+      <MetricCard
+        label="Inflation"
+        value={percent(inputs.inflationRate)}
+        note="Used to convert nominal dollars into real present-year dollars."
+      />
+      <MetricCard
+        label="Nominal discount"
+        value={percent(inputs.nominalDiscountRate)}
+        note="Entered rate before inflation adjustment."
+      />
+      <MetricCard
+        label="Real discount"
+        value={percent(result.realDiscountRate)}
+        note="Fisher-adjusted rate used for real PV needs."
+      />
+      <MetricCard
+        label="Coverage increment"
+        value={money(inputs.coverageIncrement)}
+        note="Nominal coverage is rounded up to this step."
+      />
+      <MetricCard
+        label="Max per term"
+        value={money(inputs.maxCoveragePerTerm)}
+        note="Per-policy cap used by the solver."
+      />
+      <MetricCard
+        label="Worst capital gap"
+        value={money(result.capitalSufficiency.worstGap)}
+        note={`Year ${result.capitalSufficiency.worstGapYear}.`}
+      />
+    </div>
+  );
+
+  const year0Trace = (
+    <div className="methodologyTrace">
+      <div>
+        <h4>Current scenario, year 0</h4>
+        <p>
+          This traces the main spending-basis ledger from need to personal term
+          coverage. Values are in real present-year dollars unless labeled nominal.
+        </p>
+      </div>
+      <TraceRow label="spendingPvNeed" value={money(year0.spendingPvNeed)} />
+      <TraceRow
+        label="realMortgagePrincipal"
+        value={money(year0.realMortgagePrincipal)}
+        note={`Nominal balance: ${money(year0.nominalMortgagePrincipal)}.`}
+      />
+      <TraceRow
+        label="spendingDemandReal"
+        value={money(year0.spendingDemandReal)}
+        note="spendingPvNeed + realMortgagePrincipal."
+      />
+      <TraceRow
+        label="accessibleAssets"
+        value={money(year0.accessibleAssets)}
+        note="Liquid assets + retirement assets after haircut + real pension PV."
+      />
+      <TraceRow label="realEmployerCoverage" value={money(year0.realEmployerCoverage)} />
+      <TraceRow
+        label="spendingNetNeedReal"
+        value={money(year0.spendingNetNeedReal)}
+        note="Real personal insurance need after assets and employer coverage."
+      />
+      <TraceRow
+        label="nominalRequiredCoverage"
+        value={money(year0.nominalRequiredCoverage)}
+        note="Rounded nominal face amount needed for this death year."
+      />
+    </div>
+  );
+
+  return (
+    <section className="panel methodologyPanel" id="methodology">
+      <div className="panelHeader methodologyHeader">
+        <div>
+          <span className="eyeline">Methodology</span>
+          <h2>Math and logic behind the recommendation</h2>
+        </div>
+        <span>Live values from the current assumptions</span>
+      </div>
+
+      <div className="methodologyTabs" role="tablist" aria-label="Methodology sections">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            id={`methodology-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`methodology-panel-${tab.id}`}
+            className={activeTab === tab.id ? "active" : ""}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        id={`methodology-panel-${activeTab}`}
+        className="methodologyContent"
+        role="tabpanel"
+        aria-labelledby={`methodology-tab-${activeTab}`}
+      >
+        {activeTab === "overview" ? (
+          <>
+            <div className="methodologyIntro">
+              <h3>What the model is solving</h3>
+              <p>
+                The calculator asks whether the survivor has enough real capital at
+                each modeled death year. Capital supply is assets, employer coverage,
+                survivor pension value, and the personal term ladder. Capital demand
+                is household spending need plus mortgage payoff.
+              </p>
+              <p>
+                Income PV is shown as a comparison and sensitivity. The actual policy
+                ladder is solved against spending-basis capital sufficiency.
+              </p>
+            </div>
+            {scenarioMetrics}
+            <div className="methodologyGrid">
+              <FieldFormula
+                name="Real-dollar convention"
+                formula="realCoverageAtYear = nominalAmount / (1 + inflationRate) ^ year"
+                explanation="Future nominal benefits are deflated so the chart can compare all years in today's purchasing power."
+              />
+              <FieldFormula
+                name="Fisher real rate"
+                formula="realDiscountRate = (1 + nominalDiscountRate) / (1 + inflationRate) - 1"
+                explanation="Present-value needs use a real discount rate so spending assumptions can stay in current dollars."
+              />
+              <FieldFormula
+                name="Capital sufficiency"
+                formula="capitalGap = capitalSupply - capitalDemand"
+                explanation="A negative gap means the modeled capital supply is short for that death year."
+              />
+            </div>
+            <div className="methodologyNote">
+              <strong>What to quote:</strong> the recommended policy amounts are
+              nominal face amounts to quote today. The sufficiency chart converts
+              those nominal benefits into real present-year dollars at each death year.
+            </div>
+          </>
+        ) : null}
+
+        {activeTab === "needs" ? (
+          <>
+            {year0Trace}
+            <div className="methodologyGrid">
+              <FieldFormula
+                name="incomePvNeed"
+                formula="presentValueAnnuity(annualIncome, remainingIncomeYears, realDiscountRate)"
+                explanation="Income PV estimates the real capital needed to replace the insured person's income until retirement."
+              />
+              <FieldFormula
+                name="spendingPvNeed"
+                formula="PV(pre-drop spending deficit) + deferred PV(post-drop spending deficit)"
+                explanation="Spending PV runs to the surviving spouse longevity age and reduces annual need after the dependent drop-off year."
+              />
+              <FieldFormula
+                name="spendingDemandReal"
+                formula="spendingDemandReal = spendingPvNeed + realMortgagePrincipal"
+                explanation="The solver demand combines the survivor spending plan with the real mortgage payoff amount."
+              />
+              <FieldFormula
+                name="nominalRequiredCoverage"
+                formula="ceil(exactNominalCoverageRequired / coverageIncrement) * coverageIncrement"
+                explanation="The real term need is inflated back into nominal face amount and rounded up to the entered increment."
+              />
+            </div>
+          </>
+        ) : null}
+
+        {activeTab === "offsets" ? (
+          <>
+            <div className="methodologyGrid">
+              <FieldFormula
+                name="liquidAssets"
+                formula="accumulateRealAssets(currentLiquidAssets, annualNonRetirementSavings, realAssetGrowthRate, year)"
+                explanation="Liquid assets grow at the Fisher-adjusted real asset growth rate with constant real-dollar contributions."
+              />
+              <FieldFormula
+                name="retirementAssetsAfterHaircut"
+                formula="retirementAssetsBeforeHaircut * (1 - effectiveRetirementTaxHaircut)"
+                explanation="The haircut blends the pre-tax and post-tax shares to estimate beneficiary-accessible retirement capital."
+              />
+              <FieldFormula
+                name="pensionTaxAdjustedValue"
+                formula="pensionTaxAdjustedValueNominal / (1 + inflationRate) ^ year"
+                explanation="The survivor pension is valued as a fixed nominal annuity, tax adjusted, then converted to real dollars."
+              />
+              <FieldFormula
+                name="spendingNetNeedReal"
+                formula="max(0, spendingNeedAfterAssetsReal - realEmployerCoverage)"
+                explanation="Employer coverage is treated as an offset after assets, then personal term fills the remaining real need."
+              />
+            </div>
+            <div className="methodologyMetrics">
+              <MetricCard
+                label="Year 0 accessible assets"
+                value={money(year0.accessibleAssets)}
+                note="Includes tax-adjusted real pension value."
+              />
+              <MetricCard
+                label="Retirement haircut"
+                value={percent(result.effectiveRetirementTaxHaircut)}
+                note="Weighted by pre-tax retirement share."
+              />
+              <MetricCard
+                label="Pension PV"
+                value={money(year0.pensionTaxAdjustedValue)}
+                note={`${inputs.includeSurvivorPension ? "Included" : "Excluded"} in current scenario.`}
+              />
+              <MetricCard
+                label="Employer coverage"
+                value={money(year0.realEmployerCoverage)}
+                note={`${inputs.includeEmployerCoverage ? "Included" : "Excluded"} in current scenario.`}
+              />
+            </div>
+          </>
+        ) : null}
+
+        {activeTab === "solver" ? (
+          <>
+            <div className="methodologyIntro">
+              <h3>How the ladder is chosen</h3>
+              <p>
+                The solver searches 10-, 15-, 20-, and 30-year term amounts in the
+                entered coverage increment. For each death year 0-29, active policies
+                must provide at least the rounded nominal required coverage. Among
+                feasible ladders, the solver minimizes weighted face amount, then
+                total face amount.
+              </p>
+            </div>
+            <div className="policyMethodGrid">
+              {result.policies.map((policy) => (
+                <article key={policy.termYears}>
+                  <span>{policy.termYears}-year term</span>
+                  <strong>{money(policy.amount)}</strong>
+                  <small>
+                    Active years 0-{policy.termYears - 1}; weight{" "}
+                    {policy.costWeight.toFixed(2)}
+                  </small>
+                </article>
+              ))}
+            </div>
+            <div className="methodologyGrid">
+              <FieldFormula
+                name="coverageAtYear"
+                formula="sum(policy.amount when year < policy.termYears)"
+                explanation="A 10-year policy covers years 0-9, 15-year covers 0-14, 20-year covers 0-19, and 30-year covers 0-29."
+              />
+              <FieldFormula
+                name="weightedFaceAmount"
+                formula="sum(policy.amount * effectiveCostWeights[term])"
+                explanation="Cost weights approximate relative premium cost, so the solver can prefer less expensive term structures."
+              />
+              <FieldFormula
+                name="effectiveCostWeights"
+                formula="quote-derived weights or manual costWeights"
+                explanation={`Current mode: ${inputs.premiumWeightMode}. Quote-derived mode interpolates around the live pricing anchor.`}
+              />
+            </div>
+            <div className="methodologyMetrics compact">
+              <MetricCard
+                label="Pricing anchor"
+                value={money(result.premiumPricingAnchor)}
+                note="Peak rounded nominal need used for quote-derived weights."
+              />
+              <MetricCard
+                label="Total initial face amount"
+                value={money(totalPersonalCoverage)}
+                note="Sum of nominal policy amounts to quote today."
+              />
+              <MetricCard
+                label="Weighted face amount"
+                value={money(result.weightedFaceAmount)}
+                note="Solver objective value, not a premium estimate."
+              />
+            </div>
+          </>
+        ) : null}
+
+        {activeTab === "limits" ? (
+          <>
+            <div className="methodologyGrid">
+              <article className="formulaCard">
+                <h4>Live warning status</h4>
+                <ul>
+                  <li>Residual need after year 30: {residualWarning ? "Yes" : "No"}</li>
+                  <li>Per-term maximum infeasible: {infeasibleWarning ? "Yes" : "No"}</li>
+                  <li>
+                    Selected display basis: {inputs.selectedNeedBasis}; solver basis:
+                    spending capital sufficiency.
+                  </li>
+                </ul>
+              </article>
+              <article className="formulaCard">
+                <h4>Worst-gap trace</h4>
+                <ul>
+                  <li>Year: {worstGapRow.year}</li>
+                  <li>capitalDemand: {money(worstGapRow.capitalDemand)}</li>
+                  <li>capitalSupply: {money(worstGapRow.capitalSupply)}</li>
+                  <li>capitalGap: {money(worstGapRow.capitalGap)}</li>
+                </ul>
+              </article>
+            </div>
+            <div className="methodologyColumns">
+              <article>
+                <h4>Specific caveats</h4>
+                <ul>
+                  <li>Not financial advice.</li>
+                  <li>Does not model premium affordability or premium drag.</li>
+                  <li>Does not model underwriting class differences.</li>
+                  <li>Does not model Social Security survivor benefits.</li>
+                  <li>Does not model child-by-child education ledgers.</li>
+                  <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base.</li>
+                  <li>Uses integer death years.</li>
+                  <li>Term coverage is modeled through years 0-29.</li>
+                  <li>Assumes contributions are constant real dollars.</li>
+                  <li>Uses deterministic returns, not Monte Carlo.</li>
+                </ul>
+              </article>
+              <article>
+                <h4>Trust but verify</h4>
+                <ol>
+                  <li>Compare against the DIME method.</li>
+                  <li>Compare against 10-15x income as an upper-bound screen.</li>
+                  <li>Quote nearby rounded ladders, not just the exact output.</li>
+                  <li>Re-run with conservative return and inflation assumptions.</li>
+                </ol>
+              </article>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div className="methodologyPrintSummary" aria-hidden="true">
+        <h3>Methodology summary</h3>
+        <p>
+          The ladder is solved against spending-basis capital sufficiency. Income PV
+          is displayed as a sensitivity, but the solver uses spendingDemandReal,
+          accessibleAssets, realEmployerCoverage, and personal term coverage.
+        </p>
+        {year0Trace}
+        <div className="methodologyGrid">
+          <FieldFormula
+            name="Core ledger"
+            formula="capitalGap = capitalSupply - capitalDemand"
+            explanation={`Worst gap is ${money(result.capitalSufficiency.worstGap)} in year ${result.capitalSufficiency.worstGapYear}.`}
+          />
+          <FieldFormula
+            name="Nominal quote amounts"
+            formula="nominalRequiredCoverage = ceil(exactNominalCoverageRequired / coverageIncrement) * coverageIncrement"
+            explanation="Recommended policies are nominal face amounts to quote today; sufficiency displays them in real dollars by death year."
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
