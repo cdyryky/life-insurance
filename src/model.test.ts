@@ -1020,6 +1020,25 @@ describe("life insurance model", () => {
     expect(solved.feasible).toBe(true);
   });
 
+  it("uses cheaper longer terms to satisfy early-year needs", () => {
+    const rows = Array.from({ length: 30 }, (_, year) =>
+      testRow(year, year === 0 ? 100000 : 0)
+    );
+    const solved = solvePolicyLadder(rows, {
+      ...defaultInputs,
+      coverageIncrement: 100000,
+      maxCoveragePerTerm: 100000,
+      premiumWeightMode: "manual",
+      costWeights: { 10: 2, 15: 1, 20: 10, 30: 10 }
+    });
+
+    expect(solved.amounts[10]).toBe(0);
+    expect(solved.amounts[15]).toBe(100000);
+    expect(solved.amounts[20]).toBe(0);
+    expect(solved.amounts[30]).toBe(0);
+    expect(solved.feasible).toBe(true);
+  });
+
   it("cost weights affect ladder ranking", () => {
     const lowLongTermCost = calculateLadder({
       ...defaultInputs,
@@ -1120,5 +1139,18 @@ describe("life insurance model", () => {
 
     expect(result.effectiveCostWeights).toEqual(manualWeights);
     expect(result.policies.find((policy) => policy.termYears === 30)?.costWeight).toBe(4);
+  });
+
+  it("clamps invalid manual cost weights before solving", () => {
+    const result = calculateLadder({
+      ...defaultInputs,
+      premiumWeightMode: "manual",
+      costWeights: { 10: -1, 15: Number.NaN, 20: 2, 30: 4 }
+    });
+
+    expect(result.effectiveCostWeights).toEqual({ 10: 0, 15: 0, 20: 2, 30: 4 });
+    expect(result.policies.every((policy) => policy.costWeight >= 0)).toBe(true);
+    expect(Number.isFinite(result.weightedFaceAmount)).toBe(true);
+    expect(result.weightedFaceAmount).toBeGreaterThanOrEqual(0);
   });
 });

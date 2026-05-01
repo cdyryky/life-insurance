@@ -228,7 +228,7 @@ export function effectiveCostWeightsForRows(
   if (inputs.premiumWeightMode === "manual") {
     return {
       anchor: peakRequiredCoverage(rows),
-      weights: inputs.costWeights
+      weights: sanitizeCostWeights(inputs.costWeights)
     };
   }
 
@@ -237,6 +237,14 @@ export function effectiveCostWeightsForRows(
     anchor,
     weights: deriveQuoteCostWeights(anchor)
   };
+}
+
+function sanitizeCostWeights(weights: Record<TermLength, number>) {
+  return TERMS.reduce((sanitized, term) => {
+    const weight = weights[term];
+    sanitized[term] = Number.isFinite(weight) ? Math.max(0, weight) : 0;
+    return sanitized;
+  }, {} as Record<TermLength, number>);
 }
 
 export function pensionAccrualPercent(serviceYears: number) {
@@ -704,86 +712,107 @@ export function solvePolicyLadder(
 ) {
   const increment = Math.max(1, inputs.coverageIncrement);
   const cap = Math.max(increment, inputs.maxCoveragePerTerm);
+  const capUnits = Math.max(1, Math.floor(cap / increment));
+  const costWeights = sanitizeCostWeights(inputs.costWeights);
   const requirements = rows
     .filter((row) => row.year < 30)
     .map((row) => row.nominalRequiredCoverage);
+  const requirementUnits = requirements.map((need) =>
+    Math.ceil(Math.max(0, need) / increment)
+  );
+  const maxUnitsInRange = (start: number, end: number) =>
+    Math.max(0, ...requirementUnits.slice(start, end));
 
-  const maxNeed = Math.max(0, ...requirements);
+  const maxNeedUnits = Math.max(0, ...requirementUnits);
+  const need0to9 = maxUnitsInRange(0, 10);
+  const need10to14 = maxUnitsInRange(10, 15);
+  const need15to19 = maxUnitsInRange(15, 20);
   let bestAmounts: Record<TermLength, number> | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
   let bestFace = Number.POSITIVE_INFINITY;
   let feasible = false;
 
   const maxByTerm: Record<TermLength, number> = {
-    10: Math.ceil(Math.max(0, ...requirements.slice(0, 10)) / increment),
-    15: Math.ceil(Math.max(0, ...requirements.slice(0, 15)) / increment),
-    20: Math.ceil(Math.max(0, ...requirements.slice(0, 20)) / increment),
-    30: Math.ceil(Math.max(0, ...requirements.slice(0, 30)) / increment)
+    10: Math.min(maxUnitsInRange(0, 10), capUnits),
+    15: Math.min(maxUnitsInRange(0, 15), capUnits),
+    20: Math.min(maxUnitsInRange(0, 20), capUnits),
+    30: Math.min(maxNeedUnits, capUnits)
   };
 
-  for (let u30 = 0; u30 <= Math.max(maxByTerm[30], 0); u30 += 1) {
-    const a30 = u30 * increment;
-    for (let u20 = 0; u20 <= Math.max(maxByTerm[20], 0); u20 += 1) {
-      const a20 = u20 * increment;
-      const need15to19 = Math.max(0, ...requirements.slice(15, 20));
-      if (a20 + a30 < need15to19) continue;
+  const evaluate = (units: Record<TermLength, number>) => {
+    if (TERMS.some((term) => units[term] > capUnits)) return;
 
-      for (let u15 = 0; u15 <= Math.max(maxByTerm[15], 0); u15 += 1) {
-        const a15 = u15 * increment;
-        const need10to14 = Math.max(0, ...requirements.slice(10, 15));
-        if (a15 + a20 + a30 < need10to14) continue;
+    const amounts: Record<TermLength, number> = {
+      10: units[10] * increment,
+      15: units[15] * increment,
+      20: units[20] * increment,
+      30: units[30] * increment
+    };
+    const coversAll = requirements.every(
+      (need, year) => coverageAtYear(amounts, year) >= need
+    );
+    if (!coversAll) return;
 
-        const need0to9 = Math.max(0, ...requirements.slice(0, 10));
-        const a10 = Math.max(
-          0,
-          Math.ceil((need0to9 - a15 - a20 - a30) / increment) * increment
-        );
-        if (a10 > cap || a15 > cap || a20 > cap || a30 > cap) continue;
+    feasible = true;
+    const weightedFaceAmount = TERMS.reduce(
+      (sum, term) => sum + amounts[term] * costWeights[term],
+      0
+    );
+    const totalFaceAmount = TERMS.reduce((sum, term) => sum + amounts[term], 0);
+    if (
+      weightedFaceAmount < bestScore ||
+      (weightedFaceAmount === bestScore && totalFaceAmount < bestFace)
+    ) {
+      bestScore = weightedFaceAmount;
+      bestFace = totalFaceAmount;
+      bestAmounts = amounts;
+    }
+  };
 
-        const amounts: Record<TermLength, number> = {
-          10: a10,
-          15: a15,
-          20: a20,
-          30: a30
-        };
-        const coversAll = requirements.every(
-          (need, year) => coverageAtYear(amounts, year) >= need
-        );
-        if (!coversAll) continue;
+  for (let u30 = 0; u30 <= maxByTerm[30]; u30 += 1) {
+    for (let u20 = 0; u20 <= maxByTerm[20]; u20 += 1) {
+      if (u20 + u30 < need15to19) continue;
 
-        feasible = true;
-        const weightedFaceAmount = TERMS.reduce(
-          (sum, term) => sum + amounts[term] * inputs.costWeights[term],
-          0
-        );
-        const totalFaceAmount = TERMS.reduce((sum, term) => sum + amounts[term], 0);
-        if (
-          weightedFaceAmount < bestScore ||
-          (weightedFaceAmount === bestScore && totalFaceAmount < bestFace)
-        ) {
-          bestScore = weightedFaceAmount;
-          bestFace = totalFaceAmount;
-          bestAmounts = amounts;
-        }
+      const minimumU15 = Math.max(0, need10to14 - u20 - u30);
+      if (minimumU15 > maxByTerm[15]) continue;
+
+      const u15Candidates = new Set([
+        minimumU15,
+        Math.min(maxByTerm[15], Math.max(minimumU15, need0to9 - u20 - u30))
+      ]);
+
+      for (const u15 of u15Candidates) {
+        const u10 = Math.max(0, need0to9 - u15 - u20 - u30);
+        evaluate({
+          10: u10,
+          15: u15,
+          20: u20,
+          30: u30
+        });
       }
     }
   }
 
-  if (!bestAmounts) {
-    const fallbackAmount = Math.ceil(maxNeed / increment) * increment;
-    bestAmounts = {
-      10: Math.min(cap, fallbackAmount),
-      15: Math.min(cap, fallbackAmount),
-      20: Math.min(cap, fallbackAmount),
-      30: Math.min(cap, fallbackAmount)
-    };
-  }
+  const finalAmounts =
+    bestAmounts ??
+    (() => {
+      const fallbackAmount = Math.min(capUnits, maxNeedUnits) * increment;
+      return {
+        10: fallbackAmount,
+        15: fallbackAmount,
+        20: fallbackAmount,
+        30: fallbackAmount
+      };
+    })();
 
   return {
-    amounts: bestAmounts,
-    policies: buildPolicies(bestAmounts, inputs),
+    amounts: finalAmounts,
+    policies: buildPolicies(finalAmounts, {
+      ...inputs,
+      costWeights
+    }),
     weightedFaceAmount: TERMS.reduce(
-      (sum, term) => sum + bestAmounts[term] * inputs.costWeights[term],
+      (sum, term) => sum + finalAmounts[term] * costWeights[term],
       0
     ),
     feasible

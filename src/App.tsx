@@ -615,13 +615,30 @@ function useWorkerCalculation(inputs: CalculatorInputs) {
     isCalculating: false
   }));
   const workerRef = useRef<Worker | null>(null);
+  const inputsRef = useRef(inputs);
   const latestRequestIdRef = useRef(0);
   const didMountRef = useRef(false);
 
   useEffect(() => {
-    const worker = new Worker(new URL("./solver.worker.ts", import.meta.url), {
-      type: "module"
-    });
+    const runFallbackCalculation = () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+      setState({
+        result: calculateLadder(inputsRef.current),
+        isCalculating: false
+      });
+    };
+
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./solver.worker.ts", import.meta.url), {
+        type: "module"
+      });
+    } catch {
+      workerRef.current = null;
+      return;
+    }
+
     workerRef.current = worker;
     worker.onmessage = (
       event: MessageEvent<{ requestId: number; result: CalculatorResult }>
@@ -629,6 +646,9 @@ function useWorkerCalculation(inputs: CalculatorInputs) {
       if (event.data.requestId !== latestRequestIdRef.current) return;
       setState({ result: event.data.result, isCalculating: false });
     };
+    worker.onerror = runFallbackCalculation;
+    worker.onmessageerror = runFallbackCalculation;
+
     return () => {
       worker.terminate();
       workerRef.current = null;
@@ -636,6 +656,8 @@ function useWorkerCalculation(inputs: CalculatorInputs) {
   }, []);
 
   useEffect(() => {
+    inputsRef.current = inputs;
+
     if (!didMountRef.current) {
       didMountRef.current = true;
       return;
