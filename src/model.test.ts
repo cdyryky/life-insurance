@@ -87,6 +87,14 @@ describe("life insurance model", () => {
   it("uses the balanced defaults", () => {
     expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
     expect(defaultInputs.monthlyHouseholdNeedExcludingMortgage).toBe(14000);
+    expect(defaultInputs.currentLiquidAssets).toBe(20000);
+    expect(defaultInputs.annualNonRetirementSavings).toBe(5000);
+    expect(defaultInputs.nominalAssetGrowthRate).toBe(0.05);
+    expect(defaultInputs.currentRetirementAssets).toBe(100000);
+    expect(defaultInputs.annualRetirementSavings).toBe(72000);
+    expect(defaultInputs.nominalRetirementGrowthRate).toBe(0.06);
+    expect(defaultInputs.preTaxRetirementShare).toBe(0.67);
+    expect(effectiveRetirementTaxHaircut(defaultInputs)).toBeCloseTo(0.1675, 8);
     expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
     expect(defaultInputs.includeEmployerCoverage).toBe(true);
     expect(defaultInputs.employerCoverageCreditFactor).toBe(0.5);
@@ -671,9 +679,10 @@ describe("life insurance model", () => {
       0
     );
     expect(continueRows[0].mortgagePayoffDemandReal).toBe(1500000);
-    expect(continueRows[0].mortgagePartialPaydownDemandReal).toBe(750000);
-    expect(partialRows[0].realMortgageDemand).toBe(750000);
-    expect(partialRows[0].realMortgageDemand).toBeLessThan(
+    expect(continueRows[0].mortgagePartialPaydownDemandReal).toBeGreaterThan(
+      continueRows[0].mortgagePayoffDemandReal
+    );
+    expect(partialRows[0].realMortgageDemand).toBeGreaterThan(
       payoffRows[0].realMortgageDemand
     );
     expect(partialRows[0].realMortgageDemand).toBeLessThan(
@@ -699,6 +708,59 @@ describe("life insurance model", () => {
       ...inputs,
       mortgageStrategy: "partial_paydown"
     }).rows[0].selectedMortgageStrategy).toBe("partial_paydown");
+  });
+
+  it("models partial mortgage paydown as a continuum between keep-payments and payoff", () => {
+    const inputs = {
+      ...defaultInputs,
+      mortgageBalance: 1500000,
+      mortgageAnnualRate: 0.06,
+      mortgageYearsRemaining: 15,
+      inflationRate: 0.025,
+      realReturnBaseCase: 0.035,
+      mortgageStrategy: "partial_paydown" as const
+    };
+    const noPaydown = buildBaseNeedRows({
+      ...inputs,
+      mortgagePaydownPercent: 0
+    }, {
+      realReturnOverride: inputs.realReturnBaseCase
+    }).rows[0];
+    const halfPaydown = buildBaseNeedRows({
+      ...inputs,
+      mortgagePaydownPercent: 0.5
+    }, {
+      realReturnOverride: inputs.realReturnBaseCase
+    }).rows[0];
+    const fullPaydown = buildBaseNeedRows({
+      ...inputs,
+      mortgagePaydownPercent: 1
+    }, {
+      realReturnOverride: inputs.realReturnBaseCase
+    }).rows[0];
+    const lowerBound = Math.min(
+      halfPaydown.mortgagePayoffDemandReal,
+      halfPaydown.mortgageContinuePaymentsDemandReal
+    );
+    const upperBound = Math.max(
+      halfPaydown.mortgagePayoffDemandReal,
+      halfPaydown.mortgageContinuePaymentsDemandReal
+    );
+
+    expect(noPaydown.mortgagePartialPaydownDemandReal).toBeCloseTo(
+      noPaydown.mortgageContinuePaymentsDemandReal,
+      0
+    );
+    expect(fullPaydown.mortgagePartialPaydownDemandReal).toBeCloseTo(
+      fullPaydown.mortgagePayoffDemandReal,
+      0
+    );
+    expect(halfPaydown.mortgagePartialPaydownDemandReal).toBeGreaterThan(
+      lowerBound
+    );
+    expect(halfPaydown.mortgagePartialPaydownDemandReal).toBeLessThan(
+      upperBound
+    );
   });
 
   it("deflates employer coverage then drops after the configured end year", () => {

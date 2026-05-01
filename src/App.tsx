@@ -51,7 +51,7 @@ function money(value: number) {
 
 function mortgageStrategyLabel(strategy: MortgageStrategy) {
   if (strategy === "payoff_at_death") return "Pay off mortgage";
-  if (strategy === "partial_paydown") return "Partial paydown";
+  if (strategy === "partial_paydown") return "Pay down mortgage";
   return "Keep payments";
 }
 
@@ -559,7 +559,9 @@ function AssumptionChecklist({
         inputs.socialSecurityBenefitMode === "manual"
           ? `${money(inputs.manualAnnualSocialSecuritySurvivorBenefit)} manual annual benefit.`
           : "Using simplified SSA 2026 proxy.",
-      done: inputs.socialSecurityBenefitMode === "manual"
+      done:
+        inputs.socialSecurityBenefitMode === "proxy" ||
+        inputs.manualAnnualSocialSecuritySurvivorBenefit > 0
     },
     {
       label: "College assumption",
@@ -758,7 +760,7 @@ export function App() {
                 onChange={(value) => setInput("mortgageStrategy", value)}
                 options={[
                   { value: "payoff_at_death", label: "Pay off mortgage" },
-                  { value: "partial_paydown", label: "Partial paydown" },
+                  { value: "partial_paydown", label: "Pay down mortgage" },
                   { value: "continue_monthly_payments", label: "Keep payments" }
                 ]}
               />
@@ -769,7 +771,7 @@ export function App() {
                   onChange={(v) =>
                     setInput("mortgagePaydownPercent", Math.min(1, Math.max(0, v)))
                   }
-                  help="Leave the surviving household with this share of the current mortgage paid off."
+                  help="Pays down this share of the remaining principal and models payments on the unpaid balance."
                 />
               ) : null}
             </div>
@@ -1123,7 +1125,7 @@ export function App() {
             <div className="panelHeader">
               <div>
                 <h2>Scenario Matrix</h2>
-                <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff, partial paydown, and continuing payments.</span>
+                <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff, paydown plus remaining payments, and continuing payments.</span>
               </div>
               <PendingBadge active={isCalculating} />
             </div>
@@ -1141,7 +1143,7 @@ export function App() {
                     <th>Total modeled</th>
                     <th>Shortfall/surplus</th>
                     <th>Mortgage strategy</th>
-                    <th>Payoff / partial / keep payments</th>
+                    <th>Payoff / paydown / keep payments</th>
                   </tr>
                 </thead>
                 <tbody>

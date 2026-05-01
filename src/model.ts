@@ -375,6 +375,27 @@ export function presentValueRemainingMortgagePayments(
   );
 }
 
+export function presentValueMortgagePaymentsForBalance(
+  balance: number,
+  annualRate: number,
+  yearsRemaining: number,
+  deathYear: number,
+  inflationRate: number,
+  realDiscountRate: number
+) {
+  const monthsLeft = Math.round(Math.max(0, yearsRemaining - deathYear) * 12);
+  if (balance <= 0 || monthsLeft <= 0) return 0;
+
+  const payment = monthlyMortgagePayment(balance, annualRate, monthsLeft / 12);
+  const annualPaymentInDeathYearDollars =
+    (payment * 12) / inflationFactor(inflationRate, deathYear);
+  return presentValueAnnuity(
+    annualPaymentInDeathYearDollars,
+    Math.ceil(monthsLeft / 12),
+    realDiscountRate
+  );
+}
+
 export function accumulateRealAssets(
   startingBalance: number,
   annualContribution: number,
@@ -500,12 +521,21 @@ export function buildBaseNeedRows(
       inputs.inflationRate,
       year
     );
+    const mortgagePaydownPercent = clamp(inputs.mortgagePaydownPercent, 0, 1);
     const mortgagePayoffDemandReal = realMortgagePrincipal;
-    const mortgagePartialPaydownDemandReal =
-      realMortgagePrincipal * clamp(inputs.mortgagePaydownPercent, 0, 1);
     const mortgageContinuePaymentsDemandReal =
       presentValueRemainingMortgagePayments(
         inputs.mortgageBalance,
+        inputs.mortgageAnnualRate,
+        inputs.mortgageYearsRemaining,
+        year,
+        inputs.inflationRate,
+        realDiscountRate
+      );
+    const mortgagePartialPaydownDemandReal =
+      realMortgagePrincipal * mortgagePaydownPercent +
+      presentValueMortgagePaymentsForBalance(
+        nominalMortgagePrincipal * (1 - mortgagePaydownPercent),
         inputs.mortgageAnnualRate,
         inputs.mortgageYearsRemaining,
         year,

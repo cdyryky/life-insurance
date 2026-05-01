@@ -163,7 +163,7 @@ export function MethodologyPanel({
       <TraceRow
         label="realMortgageDemand"
         value={money(year0.realMortgageDemand)}
-        note={`${year0.selectedMortgageStrategy === "payoff_at_death" ? "Pay off mortgage" : year0.selectedMortgageStrategy === "partial_paydown" ? "Partial paydown" : "Keep payments"} strategy selected.`}
+        note={`${year0.selectedMortgageStrategy === "payoff_at_death" ? "Pay off mortgage" : year0.selectedMortgageStrategy === "partial_paydown" ? "Pay down mortgage and keep payments on unpaid balance" : "Keep payments"} strategy selected.`}
       />
       <TraceRow
         label="childcareHouseholdSupportPv"
@@ -305,7 +305,7 @@ export function MethodologyPanel({
               <FieldFormula
                 name="spendingDemandReal"
                 formula="spendingDemandReal = spending + childcare + college + mortgage - socialSecurityCredit"
-                explanation={`The solver demand combines survivor spending, discrete support liabilities, the selected mortgage strategy, and credited Social Security survivor benefits. College is currently ${inputs.collegeFundingMode}.`}
+                explanation={`The solver demand combines survivor spending, discrete support liabilities, the selected mortgage strategy, and credited Social Security survivor benefits. Partial mortgage paydown includes both the paydown amount and payments on the unpaid balance. College is currently ${inputs.collegeFundingMode}.`}
               />
               <FieldFormula
                 name="nominalRequiredCoverage"
