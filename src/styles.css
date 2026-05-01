@@ -179,6 +179,10 @@ h1 {
     color 140ms ease;
 }
 
+a.secondaryButton {
+  text-decoration: none;
+}
+
 .primaryButton {
   background: linear-gradient(180deg, #1f6feb, #2454c6);
   color: #fff;
@@ -691,7 +695,7 @@ h1 {
 .railHeader {
   min-height: 58px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 13px 14px;
@@ -1181,6 +1185,14 @@ h1 {
   margin-bottom: 14px;
 }
 
+.headerStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .panelHeader h2 {
   margin: 0;
 }
@@ -1199,6 +1211,59 @@ h1 {
 
 .chartActions .segmented button {
   min-height: 31px;
+}
+
+.pendingBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #bfd2f6;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  line-height: 1;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.pendingBadge svg {
+  animation: spin 900ms linear infinite;
+}
+
+.pendingSurface {
+  border-color: #bfd2f6;
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.08),
+    var(--soft-shadow),
+    var(--inset-shadow);
+}
+
+.pendingSurface :is(
+  .rangeHeader > strong,
+  .scenarioCardGrid,
+  .chartWrap,
+  .tableWrap,
+  .capitalGrid,
+  .methodologyTabs,
+  .methodologyContent,
+  .methodologyPrintSummary,
+  .reportMeta,
+  .checkList,
+  .miniTraceList,
+  .sourcePanel ul
+) {
+  opacity: 0.58;
+  transition: opacity 140ms ease;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .warnings {

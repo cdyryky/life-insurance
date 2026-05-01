@@ -8,8 +8,7 @@ import {
   Download,
   FileText,
   Info,
-  Menu,
-  MoreVertical,
+  LoaderCircle,
   RefreshCcw,
   ShieldCheck,
   Target
@@ -188,15 +187,28 @@ function Toggle({
   );
 }
 
+function PendingBadge({ active }: { active: boolean }) {
+  if (!active) return null;
+
+  return (
+    <span className="pendingBadge" role="status" aria-live="polite">
+      <LoaderCircle size={15} aria-hidden="true" />
+      Updating...
+    </span>
+  );
+}
+
 function AccordionPanel({
   title,
+  id,
   children
 }: {
   title: string;
+  id?: string;
   children: ReactNode;
 }) {
   return (
-    <details className="accordionPanel">
+    <details className="accordionPanel" id={id}>
       <summary>
         <span>{title}</span>
         <ChevronDown size={16} />
@@ -333,7 +345,13 @@ function scenarioTermAmount(scenario: ScenarioSummary, term: TermLength) {
   return scenario.recommended30YearTerm;
 }
 
-function ScenarioRangeDashboard({ scenarios }: { scenarios: ScenarioSummary[] }) {
+function ScenarioRangeDashboard({
+  scenarios,
+  isPending
+}: {
+  scenarios: ScenarioSummary[];
+  isPending: boolean;
+}) {
   const lowerNeed = scenarios.find((scenario) => scenario.id === "optimistic");
   const conservative = scenarios.find((scenario) => scenario.id === "conservative");
   const coverageValues = scenarios.map((scenario) => scenario.personallyOwnedTermCoverage);
@@ -341,9 +359,14 @@ function ScenarioRangeDashboard({ scenarios }: { scenarios: ScenarioSummary[] })
   const highCoverage = coverageValues.length ? Math.max(...coverageValues) : 0;
 
   return (
-    <section className="decisionSummary rangeSummary" id="dashboard">
+    <section
+      className={`decisionSummary rangeSummary${isPending ? " pendingSurface" : ""}`}
+      id="dashboard"
+      aria-busy={isPending}
+    >
       <div className="rangeHeader">
         <span className="eyeline"><ShieldCheck size={16} /> Modeled coverage range</span>
+        <PendingBadge active={isPending} />
         <h2>Lower-need scenario to conservative stress scenario</h2>
         <strong>{money(lowCoverage)} - {money(highCoverage)}</strong>
         <p>
@@ -435,25 +458,18 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
   );
 }
 
-function ConfidenceStrip({
-  premiumWeightMode
-}: {
-  premiumWeightMode: PremiumWeightMode;
-}) {
+function ConfidenceStrip() {
   const items = [
     {
       icon: <CheckCircle2 size={17} />,
-      label: "SSA 2026 verified",
-      note: "Taxable maximum, PIA bend points, and family maximum bend points.",
+      label: "Source-backed assumptions",
+      note: "SSA metadata and formula details live in Methodology.",
       tone: "verified"
     },
     {
       icon: <Info size={17} />,
-      label:
-        premiumWeightMode === "quote-derived"
-          ? "Quote weights approximate"
-          : "Manual quote weights",
-      note: "Weights shape the ladder; they are not carrier premiums.",
+      label: "Quote weights are directional",
+      note: "Validate final term mix against actual carrier quotes.",
       tone: "caution"
     },
     {
@@ -479,7 +495,7 @@ function ConfidenceStrip({
   );
 }
 
-function MiniTrace({ row }: { row?: YearlyRow }) {
+function MiniTrace({ row, isPending }: { row?: YearlyRow; isPending: boolean }) {
   const traceRows = [
     ["Spending need", row?.spendingPvNeed ?? 0],
     ["Childcare/support", row?.childcareHouseholdSupportPv ?? 0],
@@ -494,13 +510,14 @@ function MiniTrace({ row }: { row?: YearlyRow }) {
   ] as const;
 
   return (
-    <section className="railPanel tracePanel">
+    <section className={`railPanel tracePanel${isPending ? " pendingSurface" : ""}`} aria-busy={isPending}>
       <div className="railHeader">
         <span className="railIcon"><Target size={16} /></span>
         <div>
           <h2>Year 0 offset trace</h2>
           <p>Separated by reliability.</p>
         </div>
+        <PendingBadge active={isPending} />
       </div>
       <div className="miniTraceList">
         {traceRows.map(([label, value]) => (
@@ -516,12 +533,13 @@ function MiniTrace({ row }: { row?: YearlyRow }) {
 
 function AssumptionChecklist({
   inputs,
-  result
+  result,
+  isPending
 }: {
   inputs: CalculatorInputs;
   result: CalculatorResult;
+  isPending: boolean;
 }) {
-  const firstRow = result.rows[0];
   const items = [
     {
       label: "Spending need",
@@ -562,13 +580,14 @@ function AssumptionChecklist({
   const doneCount = items.filter((item) => item.done).length;
 
   return (
-    <section className="railPanel checklistPanel">
+    <section className={`railPanel checklistPanel${isPending ? " pendingSurface" : ""}`} aria-busy={isPending}>
       <div className="railHeader">
         <span className="railIcon"><ClipboardCheck size={16} /></span>
         <div>
           <h2>Assumption checklist</h2>
           <p>{doneCount} / {items.length} resolved</p>
         </div>
+        <PendingBadge active={isPending} />
       </div>
       <div className="checkList">
         {items.map((item) => (
@@ -581,27 +600,33 @@ function AssumptionChecklist({
           </article>
         ))}
       </div>
-      <div className="railMetric">
-        <span>Year 0 demand</span>
-        <strong>{money(firstRow?.capitalDemand ?? 0)}</strong>
-      </div>
     </section>
   );
 }
 
 function useWorkerCalculation(inputs: CalculatorInputs) {
-  const [result, setResult] = useState<CalculatorResult>(() => calculateLadder(inputs));
+  const [state, setState] = useState<{
+    result: CalculatorResult;
+    isCalculating: boolean;
+  }>(() => ({
+    result: calculateLadder(inputs),
+    isCalculating: false
+  }));
   const workerRef = useRef<Worker | null>(null);
+  const latestRequestIdRef = useRef(0);
+  const didMountRef = useRef(false);
 
   useEffect(() => {
     const worker = new Worker(new URL("./solver.worker.ts", import.meta.url), {
       type: "module"
     });
     workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<CalculatorResult>) => {
-      setResult(event.data);
+    worker.onmessage = (
+      event: MessageEvent<{ requestId: number; result: CalculatorResult }>
+    ) => {
+      if (event.data.requestId !== latestRequestIdRef.current) return;
+      setState({ result: event.data.result, isCalculating: false });
     };
-    worker.postMessage(inputs);
     return () => {
       worker.terminate();
       workerRef.current = null;
@@ -609,16 +634,30 @@ function useWorkerCalculation(inputs: CalculatorInputs) {
   }, []);
 
   useEffect(() => {
-    workerRef.current?.postMessage(inputs);
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
+    setState((current) => ({ ...current, isCalculating: true }));
+
+    if (workerRef.current) {
+      workerRef.current.postMessage({ requestId, inputs });
+      return;
+    }
+
+    setState({ result: calculateLadder(inputs), isCalculating: false });
   }, [inputs]);
 
-  return result;
+  return state;
 }
 
 export function App() {
   const [inputs, setInputs] = useState<CalculatorInputs>(defaultInputs);
   const [needCoverageView, setNeedCoverageView] = useState<"chart" | "table">("chart");
-  const result = useWorkerCalculation(inputs);
+  const { result, isCalculating } = useWorkerCalculation(inputs);
   const rowsToPrint = result.rows.slice(0, 31);
   const firstRow = result.rows[0];
   const maxUndercoverage = Math.max(...result.rows.slice(0, 30).map((row) => row.undercoverage));
@@ -635,7 +674,12 @@ export function App() {
     setInputs((current) => ({
       ...current,
       premiumWeightMode: "manual",
-      costWeights: { ...result.effectiveCostWeights, [term]: value }
+      costWeights: {
+        ...(current.premiumWeightMode === "manual"
+          ? current.costWeights
+          : result.effectiveCostWeights),
+        [term]: value
+      }
     }));
   };
 
@@ -656,12 +700,8 @@ export function App() {
           <a href="#assumptions">Assumptions</a>
           <a href="#methodology">Methodology</a>
           <a href="#report">Reports</a>
-          <a href="#help">Help</a>
         </nav>
         <div className="headerActions">
-          <button type="button" className="iconButton" aria-label="Menu">
-            <MoreVertical size={18} />
-          </button>
           <button type="button" className="secondaryButton" onClick={() => setInputs(defaultInputs)}>
             <RefreshCcw size={17} /> Reset
           </button>
@@ -672,18 +712,15 @@ export function App() {
       </header>
 
       <section className="mobileTopbar">
-        <button type="button" className="iconButton" aria-label="Open menu">
-          <Menu size={18} />
-        </button>
         <div className="brandCluster">
           <div className="brandMark"><ShieldCheck size={16} /></div>
           <strong>Life Insurance Ladder</strong>
         </div>
-        <button type="button" className="linkButton">Edit</button>
+        <PendingBadge active={isCalculating} />
       </section>
 
-      <ScenarioRangeDashboard scenarios={result.scenarioMatrix} />
-      <ConfidenceStrip premiumWeightMode={inputs.premiumWeightMode} />
+      <ScenarioRangeDashboard scenarios={result.scenarioMatrix} isPending={isCalculating} />
+      <ConfidenceStrip />
 
       <section className="workspace">
         <aside className="controls">
@@ -1015,7 +1052,7 @@ export function App() {
             />
           </AccordionPanel>
 
-          <AccordionPanel title="Premium pricing & solver weights">
+          <AccordionPanel title="Premium pricing & solver weights" id="premium-pricing">
             <Segmented<PremiumWeightMode>
               value={inputs.premiumWeightMode}
               onChange={(value) => setInput("premiumWeightMode", value)}
@@ -1053,13 +1090,18 @@ export function App() {
         </aside>
 
         <section className="results">
-          <section className="panel">
+          <section
+            className={`panel${isCalculating ? " pendingSurface" : ""}`}
+            id="report"
+            aria-busy={isCalculating}
+          >
             <div className="panelHeader">
               <div>
                 <h2>Need and Coverage by Year</h2>
                 <span>Real present-year dollars; graph reflects the selected base-case mortgage strategy.</span>
               </div>
               <div className="chartActions">
+                <PendingBadge active={isCalculating} />
                 <Segmented<"chart" | "table">
                   value={needCoverageView}
                   onChange={setNeedCoverageView}
@@ -1077,12 +1119,13 @@ export function App() {
             )}
           </section>
 
-          <section className="panel">
+          <section className={`panel${isCalculating ? " pendingSurface" : ""}`} aria-busy={isCalculating}>
             <div className="panelHeader">
               <div>
                 <h2>Scenario Matrix</h2>
                 <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff, partial paydown, and continuing payments.</span>
               </div>
+              <PendingBadge active={isCalculating} />
             </div>
             <div className="tableWrap scenarioTable">
               <table>
@@ -1141,10 +1184,10 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel ladderPanel">
+          <section className={`panel ladderPanel${isCalculating ? " pendingSurface" : ""}`} aria-busy={isCalculating}>
             <div className="panelHeader">
               <h2>Suggested quote ladder</h2>
-              <button type="button" className="secondaryButton">Edit ladder</button>
+              <a className="secondaryButton" href="#premium-pricing">Edit weights</a>
             </div>
             <div className="tableWrap ladderTable">
               <table>
@@ -1193,10 +1236,13 @@ export function App() {
             </section>
           ) : null}
 
-          <section className="panel">
+          <section className={`panel${isCalculating ? " pendingSurface" : ""}`} aria-busy={isCalculating}>
             <div className="panelHeader">
               <h2>Capital Sufficiency</h2>
-              <span>Real present-year dollars</span>
+              <div className="headerStatus">
+                <span>Real present-year dollars</span>
+                <PendingBadge active={isCalculating} />
+              </div>
             </div>
             <div className="capitalGrid">
               <article>
@@ -1246,14 +1292,19 @@ export function App() {
             </div>
           </section>
 
-          <MethodologyPanel inputs={inputs} result={result} />
+          <div className={isCalculating ? "pendingSurface" : undefined} aria-busy={isCalculating}>
+            <MethodologyPanel inputs={inputs} result={result} isPending={isCalculating} />
+          </div>
 
-          <section className="panel">
+          <section className={`panel${isCalculating ? " pendingSurface" : ""}`} aria-busy={isCalculating}>
             <div className="panelHeader">
               <h2>Printable Report Preview</h2>
-              <button type="button" className="secondaryButton" onClick={() => window.print()}>
-                <Download size={16} /> Print
-              </button>
+              <div className="headerStatus">
+                <PendingBadge active={isCalculating} />
+                <button type="button" className="secondaryButton" onClick={() => window.print()}>
+                  <Download size={16} /> Print
+                </button>
+              </div>
             </div>
             <div className="reportMeta">
               <span>Selected target: {inputs.selectedNeedBasis}</span>
@@ -1301,20 +1352,19 @@ export function App() {
           </section>
         </section>
         <aside className="decisionRail" aria-label="Assumptions and methodology summary">
-          <AssumptionChecklist inputs={inputs} result={result} />
-          <MiniTrace row={firstRow} />
-          <section className="railPanel sourcePanel">
+          <AssumptionChecklist inputs={inputs} result={result} isPending={isCalculating} />
+          <MiniTrace row={firstRow} isPending={isCalculating} />
+          <section className={`railPanel sourcePanel${isCalculating ? " pendingSurface" : ""}`} aria-busy={isCalculating}>
             <div className="railHeader">
               <span className="railIcon"><Info size={16} /></span>
               <div>
                 <h2>Source notes</h2>
                 <p>Current model metadata.</p>
               </div>
+              <PendingBadge active={isCalculating} />
             </div>
             <ul>
-              <li>SSA 2026 taxable maximum: $184,500.</li>
-              <li>PIA bend points: $1,286 and $7,749.</li>
-              <li>Family maximum bend points: $1,643, $2,371, $3,093.</li>
+              <li>Detailed SSA 2026 source metadata is listed in Methodology.</li>
               <li>Quote weights are approximate and should be checked against actual quotes.</li>
               <li>{residualAfter30 ? "Residual need remains after the 30-year window." : "No residual post-30 warning in the current model."}</li>
             </ul>

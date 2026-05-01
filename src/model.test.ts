@@ -86,6 +86,7 @@ describe("life insurance model", () => {
 
   it("uses the balanced defaults", () => {
     expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
+    expect(defaultInputs.monthlyHouseholdNeedExcludingMortgage).toBe(14000);
     expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
     expect(defaultInputs.includeEmployerCoverage).toBe(true);
     expect(defaultInputs.employerCoverageCreditFactor).toBe(0.5);
@@ -114,7 +115,7 @@ describe("life insurance model", () => {
     expect(result.rows[0].creditedEmployerCoverage).toBe(
       defaultInputs.employerCoverageAmount * defaultInputs.employerCoverageCreditFactor
     );
-    expect(result.totalInitialCoverage).toBe(3500000);
+    expect(result.totalInitialCoverage).toBe(4200000);
     expect(fullEmployerCredit.totalInitialCoverage).toBeLessThan(
       result.totalInitialCoverage
     );
@@ -386,6 +387,37 @@ describe("life insurance model", () => {
         id: scenario.id,
         personallyOwnedTermCoverage: scenario.personallyOwnedTermCoverage
       }))
+    );
+  });
+
+  it("college mode toggle updates yearly funding and visible need rows", () => {
+    const inputs = {
+      ...defaultInputs,
+      annualCollegeFunding: 80000,
+      collegeStartYear: 0,
+      collegeEndYear: 3,
+      currentLiquidAssets: 0,
+      annualNonRetirementSavings: 0,
+      currentRetirementAssets: 0,
+      annualRetirementSavings: 0,
+      includeEmployerCoverage: false
+    };
+    const excluded = calculateLadder({
+      ...inputs,
+      collegeFundingMode: "excluded"
+    });
+    const included = calculateLadder({
+      ...inputs,
+      collegeFundingMode: "included"
+    });
+
+    expect(excluded.rows[0].collegeFundingPv).toBe(0);
+    expect(included.rows[0].collegeFundingPv).toBeGreaterThan(0);
+    expect(included.rows[0].spendingDemandReal).toBeGreaterThan(
+      excluded.rows[0].spendingDemandReal
+    );
+    expect(included.rows[0].spendingNetNeedReal).toBeGreaterThan(
+      excluded.rows[0].spendingNetNeedReal
     );
   });
 
@@ -700,6 +732,51 @@ describe("life insurance model", () => {
     expect(base.creditedEmployerCoverage).toBe(500000);
     expect(stress?.employerCoverageCreditFactor).toBe(0);
     expect(stress?.creditedEmployerGroupCoverage).toBe(0);
+  });
+
+  it("employer coverage toggle updates credited coverage and recommendation", () => {
+    const withEmployerCoverage = calculateLadder({
+      ...defaultInputs,
+      includeEmployerCoverage: true,
+      employerCoverageAmount: 1000000,
+      employerCoverageCreditFactor: 0.5
+    });
+    const withoutEmployerCoverage = calculateLadder({
+      ...defaultInputs,
+      includeEmployerCoverage: false,
+      employerCoverageAmount: 1000000,
+      employerCoverageCreditFactor: 0.5
+    });
+
+    expect(withEmployerCoverage.rows[0].creditedEmployerCoverage).toBe(500000);
+    expect(withoutEmployerCoverage.rows[0].creditedEmployerCoverage).toBe(0);
+    expect(withoutEmployerCoverage.totalInitialCoverage).toBeGreaterThan(
+      withEmployerCoverage.totalInitialCoverage
+    );
+  });
+
+  it("Social Security age-19 toggle updates credited survivor benefit PV", () => {
+    const baseInputs = {
+      ...defaultInputs,
+      socialSecurityCreditFactor: 1,
+      socialSecurityEligibleChildren: 1,
+      youngestChildAge: 18,
+      socialSecurityCoveredAnnualEarnings: 180000
+    };
+    const throughAge18 = calculateLadder({
+      ...baseInputs,
+      socialSecurityChildSecondarySchoolToAge19: false
+    });
+    const throughAge19 = calculateLadder({
+      ...baseInputs,
+      socialSecurityChildSecondarySchoolToAge19: true
+    });
+
+    expect(throughAge18.rows[0].creditedSocialSecuritySurvivorPv).toBe(0);
+    expect(throughAge19.rows[0].creditedSocialSecuritySurvivorPv).toBeGreaterThan(0);
+    expect(throughAge19.rows[0].spendingDemandReal).toBeLessThan(
+      throughAge18.rows[0].spendingDemandReal
+    );
   });
 
   it("deflates pension tax-adjusted value by death year", () => {

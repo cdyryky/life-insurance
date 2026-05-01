@@ -1,7 +1,20 @@
 import { calculateLadder } from "./model";
-import type { CalculatorInputs } from "./types";
+import type { CalculatorInputs, CalculatorResult } from "./types";
 
-self.onmessage = (event: MessageEvent<CalculatorInputs>) => {
-  const result = calculateLadder(event.data);
-  self.postMessage(result);
+type CalculationRequest = {
+  requestId: number;
+  inputs: CalculatorInputs;
+};
+
+type CalculationResponse = {
+  requestId: number;
+  result: CalculatorResult;
+};
+
+self.onmessage = (event: MessageEvent<CalculationRequest>) => {
+  const result = calculateLadder(event.data.inputs);
+  self.postMessage({
+    requestId: event.data.requestId,
+    result
+  } satisfies CalculationResponse);
 };

@@ -5,6 +5,7 @@ import { SOCIAL_SECURITY_2026_SOURCE_NOTES } from "../model";
 type MethodologyPanelProps = {
   inputs: CalculatorInputs;
   result: CalculatorResult;
+  isPending?: boolean;
 };
 
 type MethodologyTab = "overview" | "needs" | "offsets" | "solver" | "limits";
@@ -92,7 +93,11 @@ function firstExistingRow(rows: YearlyRow[], index: number) {
   return rows[index] ?? rows[0];
 }
 
-export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
+export function MethodologyPanel({
+  inputs,
+  result,
+  isPending = false
+}: MethodologyPanelProps) {
   const [activeTab, setActiveTab] = useState<MethodologyTab>("overview");
   const year0 = firstExistingRow(result.rows, 0);
   const worstGapRow = useMemo(
@@ -210,7 +215,11 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
           <span className="eyeline">Methodology</span>
           <h2>Math and logic behind the quote estimate</h2>
         </div>
-        <span>Live values from the current assumptions</span>
+        <span>
+          {isPending
+            ? "Showing prior values while the calculator updates"
+            : "Live values from the current assumptions"}
+        </span>
       </div>
 
       <div className="methodologyTabs" role="tablist" aria-label="Methodology sections">

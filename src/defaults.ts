@@ -6,7 +6,7 @@ export const defaultInputs: CalculatorInputs = {
   retirementAge: 60,
   survivingSpouseLongevityAge: 95,
   annualIncome: 600000,
-  monthlyHouseholdNeedExcludingMortgage: 12000,
+  monthlyHouseholdNeedExcludingMortgage: 14000,
   survivingSpouseIncome: 0,
   dependentDropOffYear: 18,
   dependentDropOffAmount: 48000,
