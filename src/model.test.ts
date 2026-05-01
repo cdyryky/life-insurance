@@ -82,7 +82,7 @@ describe("life insurance model", () => {
     expect(activeYearsLabel(30)).toBe("0-29");
   });
 
-  it("uses the balanced pre-purchase defaults", () => {
+  it("uses the balanced defaults", () => {
     expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
     expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
     expect(defaultInputs.includeEmployerCoverage).toBe(true);
@@ -95,7 +95,9 @@ describe("life insurance model", () => {
     expect(defaultInputs.realReturnOptimistic).toBe(0.05);
     expect(defaultInputs.childcareHouseholdSupportAnnual).toBe(50000);
     expect(defaultInputs.childcareSupportEndAge).toBe(14);
-    expect(defaultInputs.collegeFundingMode).toBe("scenario_only");
+    expect(defaultInputs.collegeFundingMode).toBe("excluded");
+    expect(defaultInputs.socialSecurityBenefitMode).toBe("proxy");
+    expect(defaultInputs.manualAnnualSocialSecuritySurvivorBenefit).toBe(0);
   });
 
   it("bases the default quote estimate on partial employer coverage credit", () => {
@@ -200,6 +202,21 @@ describe("life insurance model", () => {
         3
       )
     ).toBeCloseTo(pia * 0.75 * 12, 0);
+  });
+
+  it("allows a manual Social Security survivor benefit override within the eligibility horizon", () => {
+    const inputs = {
+      ...defaultInputs,
+      socialSecurityBenefitMode: "manual" as const,
+      manualAnnualSocialSecuritySurvivorBenefit: 42000,
+      socialSecurityEligibleChildren: 1,
+      youngestChildAge: 15,
+      socialSecurityChildSecondarySchoolToAge19: false
+    };
+
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 0)).toBe(42000);
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 1)).toBe(42000);
+    expect(estimateAnnualSocialSecuritySurvivorBenefit(inputs, 0, 3)).toBe(0);
   });
 
   it("amortizes mortgage principal to zero at term end", () => {
@@ -311,6 +328,34 @@ describe("life insurance model", () => {
     ]);
     expect(
       result.scenarioMatrix.every((scenario) => !scenario.includesCollegeFunding)
+    ).toBe(true);
+  });
+
+  it("includes college funding when explicitly enabled", () => {
+    const sharedInputs = {
+      ...defaultInputs,
+      annualCollegeFunding: 100000,
+      collegeStartYear: 1,
+      collegeEndYear: 4,
+      currentLiquidAssets: 0,
+      annualNonRetirementSavings: 0,
+      currentRetirementAssets: 0,
+      annualRetirementSavings: 0,
+      includeEmployerCoverage: false
+    };
+    const excluded = calculateLadder(sharedInputs);
+    const included = calculateLadder({
+      ...sharedInputs,
+      collegeFundingMode: "included"
+    });
+
+    expect(excluded.rows[0].collegeFundingPv).toBe(0);
+    expect(included.rows[0].collegeFundingPv).toBeGreaterThan(0);
+    expect(included.totalInitialCoverage).toBeGreaterThanOrEqual(
+      excluded.totalInitialCoverage
+    );
+    expect(
+      included.scenarioMatrix.every((scenario) => scenario.includesCollegeFunding)
     ).toBe(true);
   });
 
@@ -696,6 +741,30 @@ describe("life insurance model", () => {
     );
   });
 
+  it("keeps post-30 residual need separate from in-window term undercoverage", () => {
+    const result = calculateLadder({
+      ...defaultInputs,
+      insuredAge: 30,
+      retirementAge: 67,
+      includeEmployerCoverage: false,
+      currentLiquidAssets: 0,
+      annualNonRetirementSavings: 0,
+      currentRetirementAssets: 0,
+      annualRetirementSavings: 0,
+      maxCoveragePerTerm: 20000000
+    });
+
+    expect(
+      result.rows.filter((row) => row.year < 30).every((row) => row.undercoverage < 1)
+    ).toBe(true);
+    expect(result.rows.some((row) => row.year >= 30 && row.spendingNetNeedReal > 0)).toBe(
+      true
+    );
+    expect(result.warnings.map((warning) => warning.kind)).toContain(
+      "residual-after-30"
+    );
+  });
+
   it("solver ignores selectedNeedBasis and uses spending net need", () => {
     const baseInputs = {
       ...defaultInputs,
@@ -858,6 +927,7 @@ describe("life insurance model", () => {
     expect(result.recommended10YearTerm).toBe(
       result.policies.find((policy) => policy.termYears === 10)?.amount
     );
+    expect(base?.personallyOwnedTermCoverage).toBe(result.totalInitialCoverage);
     expect(result.coverageGapByYear).toHaveLength(31);
   });
 

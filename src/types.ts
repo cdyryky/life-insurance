@@ -6,7 +6,9 @@ export type PremiumWeightMode = "quote-derived" | "manual";
 
 export type MortgageStrategy = "payoff_at_death" | "continue_monthly_payments";
 
-export type CollegeFundingMode = "scenario_only";
+export type CollegeFundingMode = "excluded" | "included";
+
+export type SocialSecurityBenefitMode = "proxy" | "manual";
 
 export type ScenarioId =
   | "conservative"
@@ -58,6 +60,8 @@ export type CalculatorInputs = {
   employerCoverageCreditFactor: number;
   includeEmployerCoverage: boolean;
   socialSecurityCreditFactor: number;
+  socialSecurityBenefitMode: SocialSecurityBenefitMode;
+  manualAnnualSocialSecuritySurvivorBenefit: number;
   socialSecurityEligibleChildren: number;
   youngestChildAge: number;
   socialSecurityCoveredAnnualEarnings: number;

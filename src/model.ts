@@ -24,6 +24,12 @@ export const SOCIAL_SECURITY_2026_FAMILY_MAX_BEND_POINTS = {
   second: 2371,
   third: 3093
 };
+export const SOCIAL_SECURITY_2026_SOURCE_NOTES = [
+  "SSA 2026 OASDI contribution and benefit base: $184,500",
+  "SSA 2026 PIA bend points: $1,286 and $7,749",
+  "SSA 2026 retirement/survivor family maximum bend points: $1,643, $2,371, and $3,093",
+  "SSA survivor children generally receive 75% of the parent's benefit, subject to the family maximum"
+];
 const TERM4SALE_QUOTES: Record<typeof QUOTE_ANCHOR_LOW | typeof QUOTE_ANCHOR_HIGH, Record<TermLength, number>> = {
   [QUOTE_ANCHOR_LOW]: {
     10: 218.9,
@@ -149,6 +155,10 @@ export function estimateAnnualSocialSecuritySurvivorBenefit(
   const caregiverBeneficiaries = childAge < 16 && childBeneficiaries > 0 ? 1 : 0;
   const beneficiaryCount = childBeneficiaries + caregiverBeneficiaries;
   if (beneficiaryCount <= 0) return 0;
+
+  if (inputs.socialSecurityBenefitMode === "manual") {
+    return Math.max(0, inputs.manualAnnualSocialSecuritySurvivorBenefit);
+  }
 
   const pia = estimateSocialSecurityPia(inputs.socialSecurityCoveredAnnualEarnings);
   const uncappedMonthlyBenefit = pia * 0.75 * beneficiaryCount;
@@ -410,7 +420,8 @@ export function buildBaseNeedRows(
     0,
     1
   );
-  const includeCollegeFunding = options.includeCollegeFunding ?? false;
+  const includeCollegeFunding =
+    options.includeCollegeFunding ?? inputs.collegeFundingMode === "included";
   const retirementHaircut = effectiveRetirementTaxHaircut(inputs);
   const retirementHorizon = Math.max(0, inputs.retirementAge - inputs.insuredAge);
   const annualSpendingDeficit = Math.max(
@@ -816,7 +827,7 @@ function calculateSingleLadder(
     warnings.push({
       kind: "residual-after-30",
       message:
-        "Spending-basis real need remains after year 30. Available term products expire by year 30, so review permanent coverage, savings, or assumptions before relying on this ladder."
+        "Spending-basis real need remains after the 30-year term window. Term policies cover years 0-29 in this model; review permanent coverage, savings, or assumptions for later years."
     });
   }
 
@@ -864,7 +875,7 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
       realReturn: inputs.realReturnConservative,
       employerCoverageCreditFactor: 0,
       socialSecurityCreditFactor: 0,
-      includeCollegeFunding: false
+      includeCollegeFunding: inputs.collegeFundingMode === "included"
     },
     {
       id: "base",
@@ -872,7 +883,7 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
       realReturn: inputs.realReturnBaseCase,
       employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
       socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
-      includeCollegeFunding: false
+      includeCollegeFunding: inputs.collegeFundingMode === "included"
     },
     {
       id: "optimistic",
@@ -880,7 +891,7 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
       realReturn: inputs.realReturnOptimistic,
       employerCoverageCreditFactor: 1,
       socialSecurityCreditFactor: 1,
-      includeCollegeFunding: false
+      includeCollegeFunding: inputs.collegeFundingMode === "included"
     }
   ];
 }
@@ -952,7 +963,7 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     realReturnOverride: inputs.realReturnBaseCase,
     employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
     socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
-    includeCollegeFunding: false
+    includeCollegeFunding: inputs.collegeFundingMode === "included"
   };
   const payoff = calculateSingleLadder(inputs, {
     ...baseOptions,

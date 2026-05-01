@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronDown,
+  ClipboardCheck,
   Download,
   FileText,
+  Info,
   Menu,
   MoreVertical,
   RefreshCcw,
-  ShieldCheck
+  ShieldCheck,
+  Target
 } from "lucide-react";
 import { defaultInputs } from "./defaults";
 import { MethodologyPanel } from "./components/MethodologyPanel";
@@ -17,9 +21,11 @@ import { calculateLadder } from "./model";
 import type {
   CalculatorInputs,
   CalculatorResult,
+  CollegeFundingMode,
   MortgageStrategy,
   NeedBasis,
   PremiumWeightMode,
+  SocialSecurityBenefitMode,
   TermLength,
   YearlyRow
 } from "./types";
@@ -352,6 +358,158 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
   );
 }
 
+function ConfidenceStrip({
+  premiumWeightMode
+}: {
+  premiumWeightMode: PremiumWeightMode;
+}) {
+  const items = [
+    {
+      icon: <CheckCircle2 size={17} />,
+      label: "SSA 2026 verified",
+      note: "Taxable maximum, PIA bend points, and family maximum bend points.",
+      tone: "verified"
+    },
+    {
+      icon: <Info size={17} />,
+      label:
+        premiumWeightMode === "quote-derived"
+          ? "Quote weights approximate"
+          : "Manual quote weights",
+      note: "Weights shape the ladder; they are not carrier premiums.",
+      tone: "caution"
+    },
+    {
+      icon: <AlertTriangle size={17} />,
+      label: "Not financial advice",
+      note: "Use as a planning model and confirm final quotes and eligibility.",
+      tone: "neutral"
+    }
+  ];
+
+  return (
+    <div className="confidenceStrip" aria-label="Accuracy notes">
+      {items.map((item) => (
+        <article key={item.label} className={`confidenceItem ${item.tone}`}>
+          {item.icon}
+          <div>
+            <strong>{item.label}</strong>
+            <span>{item.note}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function MiniTrace({ row }: { row?: YearlyRow }) {
+  const traceRows = [
+    ["Spending need", row?.spendingPvNeed ?? 0],
+    ["Childcare/support", row?.childcareHouseholdSupportPv ?? 0],
+    ["College funding", row?.collegeFundingPv ?? 0],
+    ["Mortgage demand", row?.realMortgageDemand ?? 0],
+    ["Social Security credit", -(row?.creditedSocialSecuritySurvivorPv ?? 0)],
+    ["Accessible assets", -(row?.accessibleAssets ?? 0)],
+    ["Employer credit", -(row?.creditedEmployerCoverage ?? 0)],
+    ["Net personal need", row?.spendingNetNeedReal ?? 0]
+  ] as const;
+
+  return (
+    <section className="railPanel tracePanel">
+      <div className="railHeader">
+        <span className="railIcon"><Target size={16} /></span>
+        <div>
+          <h2>Year 0 trace</h2>
+          <p>Real present-year dollars.</p>
+        </div>
+      </div>
+      <div className="miniTraceList">
+        {traceRows.map(([label, value]) => (
+          <div key={label} className={value < 0 ? "offset" : undefined}>
+            <span>{label}</span>
+            <strong>{money(value)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AssumptionChecklist({
+  inputs,
+  result
+}: {
+  inputs: CalculatorInputs;
+  result: CalculatorResult;
+}) {
+  const firstRow = result.rows[0];
+  const items = [
+    {
+      label: "Spending need",
+      detail: `${money(inputs.monthlyHouseholdNeedExcludingMortgage * 12)} annual household need before mortgage.`,
+      done: inputs.monthlyHouseholdNeedExcludingMortgage > 0
+    },
+    {
+      label: "Employer portability",
+      detail: inputs.includeEmployerCoverage
+        ? `${percentFormatter.format(inputs.employerCoverageCreditFactor)} of employer coverage credited.`
+        : "Employer coverage excluded.",
+      done: !inputs.includeEmployerCoverage || inputs.employerCoverageCreditFactor <= 0.5
+    },
+    {
+      label: "Social Security estimate",
+      detail:
+        inputs.socialSecurityBenefitMode === "manual"
+          ? `${money(inputs.manualAnnualSocialSecuritySurvivorBenefit)} manual annual benefit.`
+          : "Using simplified SSA 2026 proxy.",
+      done: inputs.socialSecurityBenefitMode === "manual"
+    },
+    {
+      label: "College assumption",
+      detail:
+        inputs.collegeFundingMode === "included"
+          ? `${money(inputs.annualCollegeFunding)} annual college funding included.`
+          : "College funding excluded from the primary ladder.",
+      done: inputs.collegeFundingMode === "excluded"
+    },
+    {
+      label: "Post-30 residual need",
+      detail: result.warnings.some((warning) => warning.kind === "residual-after-30")
+        ? "Need remains after the 30-year term window."
+        : "No residual warning in the current model.",
+      done: !result.warnings.some((warning) => warning.kind === "residual-after-30")
+    }
+  ];
+  const doneCount = items.filter((item) => item.done).length;
+
+  return (
+    <section className="railPanel checklistPanel">
+      <div className="railHeader">
+        <span className="railIcon"><ClipboardCheck size={16} /></span>
+        <div>
+          <h2>Assumption checklist</h2>
+          <p>{doneCount} / {items.length} resolved</p>
+        </div>
+      </div>
+      <div className="checkList">
+        {items.map((item) => (
+          <article key={item.label} className={item.done ? "done" : undefined}>
+            <span aria-hidden="true">{item.done ? "OK" : ""}</span>
+            <div>
+              <strong>{item.label}</strong>
+              <small>{item.detail}</small>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="railMetric">
+        <span>Year 0 demand</span>
+        <strong>{money(firstRow?.capitalDemand ?? 0)}</strong>
+      </div>
+    </section>
+  );
+}
+
 function useWorkerCalculation(inputs: CalculatorInputs) {
   const [result, setResult] = useState<CalculatorResult>(() => calculateLadder(inputs));
   const workerRef = useRef<Worker | null>(null);
@@ -403,55 +561,9 @@ export function App() {
   };
 
   const reportRows = useMemo(() => rowsToPrint.filter((row) => row.year % 5 === 0), [rowsToPrint]);
-  const capitalSufficiencyPercent = Math.max(
-    0,
-    Math.min(1, (firstRow?.capitalSupply ?? 0) / Math.max(1, firstRow?.capitalDemand ?? 1))
+  const residualAfter30 = result.warnings.some(
+    (warning) => warning.kind === "residual-after-30"
   );
-
-  const summaryItems = [
-    {
-      label: "Income PV",
-      value: money(firstRow?.incomePvNeed ?? 0),
-      note: "In today's dollars",
-      tone: "success"
-    },
-    {
-      label: "Spending PV",
-      value: money(firstRow?.spendingPvNeed ?? 0),
-      note: "In today's dollars"
-    },
-    {
-      label: "Capital deficit",
-      value: money(Math.max(0, -result.capitalSufficiency.worstGap)),
-      note: `Worst gap ${money(result.capitalSufficiency.worstGap)} in year ${result.capitalSufficiency.worstGapYear}`,
-      tone: "blue"
-    },
-    {
-      label: "Suggested quote amount",
-      value: money(result.totalInitialCoverage),
-      note: "Balanced pre-purchase estimate",
-      tone: "success"
-    },
-    {
-      label: "Employer group credit",
-      value: money(firstRow?.creditedEmployerCoverage ?? 0),
-      note: inputs.includeEmployerCoverage
-        ? `${employerCreditPercent} of current group benefit`
-        : "Excluded from modeled supply",
-      tone: "blue"
-    },
-    {
-      label: "Years of coverage",
-      value: "30",
-      note: `Through age ${inputs.insuredAge + 30}`
-    },
-    {
-      label: "Capital sufficiency",
-      value: percentFormatter.format(capitalSufficiencyPercent),
-      note: "Under current assumptions",
-      tone: "success"
-    }
-  ];
 
   return (
     <main>
@@ -491,20 +603,33 @@ export function App() {
         <button type="button" className="linkButton">Edit</button>
       </section>
 
-      <section className="summaryGrid" id="dashboard">
-        {summaryItems.map((item) => (
-          <article key={item.label} className={item.tone ? `tone-${item.tone}` : undefined}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-            <small>{item.note}</small>
-          </article>
-        ))}
+      <section className="decisionSummary" id="dashboard">
+        <div className="recommendationCard">
+          <span className="eyeline"><ShieldCheck size={16} /> Balanced Base</span>
+          <h2>Recommended personal term</h2>
+          <strong>{money(totalPersonalCoverage)}</strong>
+          <p>
+            Nominal face amount solved against spending-basis capital sufficiency.
+            Worst modeled gap: {money(result.capitalSufficiency.worstGap)} in year{" "}
+            {result.capitalSufficiency.worstGapYear}.
+          </p>
+        </div>
+        <div className="termSummaryGrid" aria-label="Recommended policy amounts">
+          {result.policies.map((policy) => (
+            <article key={policy.termYears}>
+              <span>{policy.termYears}-year</span>
+              <strong>{money(policy.amount)}</strong>
+              <small>Nominal face, years {activeYearsLabel(policy.termYears)}</small>
+            </article>
+          ))}
+        </div>
+        <ConfidenceStrip premiumWeightMode={inputs.premiumWeightMode} />
       </section>
 
       <section className="workspace">
         <aside className="controls">
           <section className="panel quickPanel" id="assumptions">
-            <SectionTitle index={1}>Quick iteration</SectionTitle>
+            <SectionTitle index={1}>Core assumptions</SectionTitle>
 
             <div className="controlBlock">
               <span className="controlLabel">Target basis</span>
@@ -514,6 +639,18 @@ export function App() {
                 options={[
                   { value: "spending", label: "Spending need" },
                   { value: "income", label: "Income replacement" }
+                ]}
+              />
+            </div>
+
+            <div className="controlBlock">
+              <span className="controlLabel">College funding</span>
+              <Segmented<CollegeFundingMode>
+                value={inputs.collegeFundingMode}
+                onChange={(value) => setInput("collegeFundingMode", value)}
+                options={[
+                  { value: "excluded", label: "Excluded" },
+                  { value: "included", label: "Included" }
                 ]}
               />
             </div>
@@ -653,6 +790,24 @@ export function App() {
               onChange={(v) => setInput("childcareSupportEndAge", v)}
               help="Support ends when the youngest child reaches this age."
             />
+            <Field
+              label="Annual college funding"
+              value={inputs.annualCollegeFunding}
+              onChange={(v) => setInput("annualCollegeFunding", v)}
+              prefix="$"
+              step={5000}
+              help={`Currently ${inputs.collegeFundingMode === "included" ? "included" : "excluded"} from the primary ladder.`}
+            />
+            <Field
+              label="College start year"
+              value={inputs.collegeStartYear}
+              onChange={(v) => setInput("collegeStartYear", v)}
+            />
+            <Field
+              label="College end year"
+              value={inputs.collegeEndYear}
+              onChange={(v) => setInput("collegeEndYear", v)}
+            />
             <RateField label="Nominal discount rate" value={inputs.nominalDiscountRate} onChange={(v) => setInput("nominalDiscountRate", v)} help="Used outside the scenario real-return matrix." />
           </AccordionPanel>
 
@@ -755,6 +910,29 @@ export function App() {
               step={10000}
               help="Capped at the 2026 taxable maximum inside the model."
             />
+            <div className="controlBlock">
+              <span className="controlLabel">Social Security benefit</span>
+              <Segmented<SocialSecurityBenefitMode>
+                value={inputs.socialSecurityBenefitMode}
+                onChange={(value) => setInput("socialSecurityBenefitMode", value)}
+                options={[
+                  { value: "proxy", label: "SSA proxy" },
+                  { value: "manual", label: "Manual" }
+                ]}
+              />
+            </div>
+            {inputs.socialSecurityBenefitMode === "manual" ? (
+              <Field
+                label="Manual annual SS survivor benefit"
+                value={inputs.manualAnnualSocialSecuritySurvivorBenefit}
+                onChange={(v) =>
+                  setInput("manualAnnualSocialSecuritySurvivorBenefit", Math.max(0, v))
+                }
+                prefix="$"
+                step={1000}
+                help="Annual total benefit while a child/caregiver beneficiary is eligible."
+              />
+            ) : null}
             <Field
               label="SS eligible children"
               value={inputs.socialSecurityEligibleChildren}
@@ -781,7 +959,7 @@ export function App() {
                 <span>Pricing anchor</span>
                 <strong>{money(result.premiumPricingAnchor)}</strong>
                 <small>
-                  $1M-$2M TERM4SALE, Preferred Plus, male, non-smoker
+                  Relative weights from sample term quotes; validate with actual carrier quotes.
                 </small>
               </div>
             )}
@@ -808,9 +986,9 @@ export function App() {
           <section className="panel heroPanel">
             <div>
               <span className="eyeline"><ShieldCheck size={16} /> Solver result</span>
-              <h2>Balanced quote estimate</h2>
+              <h2>Recommended personal term</h2>
               <p>
-                Suggested quote amounts are solved against spending-basis capital sufficiency.
+                Suggested nominal face amounts are solved against spending-basis capital sufficiency.
                 The default stance partially credits employer coverage and excludes unverified pension offsets.
                 Income replacement is shown as an upper-bound sensitivity.
                 Real discount rate: {percentFormatter.format(result.realDiscountRate)}.
@@ -926,7 +1104,7 @@ export function App() {
                   <tr>
                     <td>Total initial face amount</td>
                     <td>{money(totalPersonalCoverage)}</td>
-                    <td colSpan={3}>Max real undercoverage, years 0-30</td>
+                    <td colSpan={3}>Max real undercoverage, years 0-29</td>
                     <td>{money(maxUndercoverage)}</td>
                   </tr>
                 </tfoot>
@@ -985,7 +1163,7 @@ export function App() {
                     ? "None"
                     : `Year ${result.capitalSufficiency.firstDeficitYear}`}
                 </strong>
-                <small>Years 0-30</small>
+                <small>Term-covered years 0-29</small>
               </article>
               <article>
                 <span>Year 0 supply</span>
@@ -1019,7 +1197,8 @@ export function App() {
               <span>Employer coverage: {inputs.includeEmployerCoverage ? `${employerCreditPercent} credited` : "excluded"}</span>
               <span>Survivor pension: {inputs.includeSurvivorPension ? "included" : "excluded"}</span>
               <span>Weighted face amount: {money(result.weightedFaceAmount)}</span>
-              <span>College: sensitivity only</span>
+              <span>College: {inputs.collegeFundingMode}</span>
+              <span>Social Security: {inputs.socialSecurityBenefitMode}</span>
             </div>
             <div className="tableWrap">
               <table>
@@ -1053,6 +1232,26 @@ export function App() {
             </div>
           </section>
         </section>
+        <aside className="decisionRail" aria-label="Assumptions and methodology summary">
+          <AssumptionChecklist inputs={inputs} result={result} />
+          <MiniTrace row={firstRow} />
+          <section className="railPanel sourcePanel">
+            <div className="railHeader">
+              <span className="railIcon"><Info size={16} /></span>
+              <div>
+                <h2>Source notes</h2>
+                <p>Current model metadata.</p>
+              </div>
+            </div>
+            <ul>
+              <li>SSA 2026 taxable maximum: $184,500.</li>
+              <li>PIA bend points: $1,286 and $7,749.</li>
+              <li>Family maximum bend points: $1,643, $2,371, $3,093.</li>
+              <li>Quote weights are approximate and should be checked against actual quotes.</li>
+              <li>{residualAfter30 ? "Residual need remains after the 30-year window." : "No residual post-30 warning in the current model."}</li>
+            </ul>
+          </section>
+        </aside>
       </section>
     </main>
   );

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CalculatorInputs, CalculatorResult, YearlyRow } from "../types";
+import { SOCIAL_SECURITY_2026_SOURCE_NOTES } from "../model";
 
 type MethodologyPanelProps = {
   inputs: CalculatorInputs;
@@ -261,7 +262,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
             </div>
             <div className="methodologyNote">
               <strong>What to quote:</strong> the suggested policy amounts are
-              nominal face amounts to quote today. The sufficiency chart converts
+              nominal face amounts to quote. The sufficiency chart converts
               those nominal benefits into real present-year dollars at each death year.
             </div>
           </>
@@ -284,7 +285,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               <FieldFormula
                 name="spendingDemandReal"
                 formula="spendingDemandReal = spending + childcare + college + mortgage - socialSecurityCredit"
-                explanation="The solver demand combines survivor spending, discrete support liabilities, selected mortgage strategy, and credited Social Security survivor benefits."
+                explanation={`The solver demand combines survivor spending, discrete support liabilities, selected mortgage strategy, and credited Social Security survivor benefits. College is currently ${inputs.collegeFundingMode}.`}
               />
               <FieldFormula
                 name="nominalRequiredCoverage"
@@ -394,7 +395,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               <MetricCard
                 label="Total initial face amount"
                 value={money(totalPersonalCoverage)}
-                note="Sum of nominal policy amounts to quote today."
+                note="Sum of nominal policy amounts to quote."
               />
               <MetricCard
                 label="Weighted face amount"
@@ -417,6 +418,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                     Selected display basis: {inputs.selectedNeedBasis}; solver basis:
                     spending capital sufficiency.
                   </li>
+                  <li>College funding: {inputs.collegeFundingMode}.</li>
+                  <li>Social Security benefit mode: {inputs.socialSecurityBenefitMode}.</li>
                 </ul>
               </article>
               <article className="formulaCard">
@@ -428,6 +431,14 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                   <li>capitalGap: {money(worstGapRow.capitalGap)}</li>
                 </ul>
               </article>
+              <article className="formulaCard">
+                <h4>SSA 2026 source metadata</h4>
+                <ul>
+                  {SOCIAL_SECURITY_2026_SOURCE_NOTES.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              </article>
             </div>
             <div className="methodologyColumns">
               <article>
@@ -436,8 +447,8 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                   <li>Not financial advice.</li>
                   <li>Does not model premium affordability or premium drag.</li>
                   <li>Does not model underwriting class differences.</li>
-                  <li>Social Security survivor benefits are rough estimates from simplified 2026 SSA rules.</li>
-                  <li>College is excluded from the base ladder and shown as a sensitivity only.</li>
+                  <li>Social Security survivor benefits use either the simplified 2026 SSA proxy or the manual annual override.</li>
+                  <li>College is included only when the college funding control is set to included.</li>
                   <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base; leave it off unless vesting and survivor terms are confirmed.</li>
                   <li>Uses integer death years.</li>
                   <li>Term coverage is modeled through years 0-29.</li>
@@ -477,7 +488,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
           <FieldFormula
             name="Nominal quote amounts"
             formula="nominalRequiredCoverage = ceil(exactNominalCoverageRequired / coverageIncrement) * coverageIncrement"
-            explanation="Suggested policies are nominal face amounts to quote today; sufficiency displays them in real dollars by death year."
+            explanation="Suggested policies are nominal face amounts; sufficiency displays them in real dollars by death year."
           />
         </div>
       </div>
