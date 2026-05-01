@@ -82,17 +82,37 @@ describe("life insurance model", () => {
     expect(activeYearsLabel(30)).toBe("0-29");
   });
 
-  it("uses the scenario planning defaults", () => {
+  it("uses the balanced pre-purchase defaults", () => {
     expect(defaultInputs.preTaxRetirementHaircut).toBe(0.25);
     expect(defaultInputs.pensionTaxAdjustmentFactor).toBe(0.75);
-    expect(defaultInputs.employerCoverageCreditFactor).toBe(1);
+    expect(defaultInputs.includeEmployerCoverage).toBe(true);
+    expect(defaultInputs.employerCoverageCreditFactor).toBe(0.5);
+    expect(defaultInputs.includeSurvivorPension).toBe(false);
     expect(defaultInputs.socialSecurityCreditFactor).toBe(0.5);
+    expect(defaultInputs.socialSecurityChildSecondarySchoolToAge19).toBe(false);
     expect(defaultInputs.realReturnBaseCase).toBe(0.035);
     expect(defaultInputs.realReturnConservative).toBe(0.02);
     expect(defaultInputs.realReturnOptimistic).toBe(0.05);
     expect(defaultInputs.childcareHouseholdSupportAnnual).toBe(50000);
     expect(defaultInputs.childcareSupportEndAge).toBe(14);
     expect(defaultInputs.collegeFundingMode).toBe("scenario_only");
+  });
+
+  it("bases the default quote estimate on partial employer coverage credit", () => {
+    const result = calculateLadder(defaultInputs);
+    const fullEmployerCredit = calculateLadder({
+      ...defaultInputs,
+      employerCoverageCreditFactor: 1
+    });
+
+    expect(result.rows[0].realEmployerCoverage).toBe(defaultInputs.employerCoverageAmount);
+    expect(result.rows[0].creditedEmployerCoverage).toBe(
+      defaultInputs.employerCoverageAmount * defaultInputs.employerCoverageCreditFactor
+    );
+    expect(result.totalInitialCoverage).toBe(3500000);
+    expect(fullEmployerCredit.totalInitialCoverage).toBeLessThan(
+      result.totalInitialCoverage
+    );
   });
 
   it("calculates the Fisher real discount rate", () => {
@@ -429,6 +449,7 @@ describe("life insurance model", () => {
   it("defers pre-55 survivor pension and discounts the nominal PV with the nominal rate", () => {
     const inputs = {
       ...defaultInputs,
+      includeSurvivorPension: true,
       insuredAge: 40,
       spouseAge: 35,
       pensionCurrentServiceYears: 5,
@@ -820,7 +841,7 @@ describe("life insurance model", () => {
     expect(conservative?.realReturn).toBe(defaultInputs.realReturnConservative);
     expect(conservative?.employerCoverageCreditFactor).toBe(0);
     expect(conservative?.socialSecurityCreditFactor).toBe(0);
-    expect(base?.employerCoverageCreditFactor).toBe(1);
+    expect(base?.employerCoverageCreditFactor).toBe(0.5);
     expect(base?.socialSecurityCreditFactor).toBe(0.5);
     expect(optimistic?.employerCoverageCreditFactor).toBe(1);
     expect(optimistic?.socialSecurityCreditFactor).toBe(1);

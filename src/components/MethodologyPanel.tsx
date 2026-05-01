@@ -197,7 +197,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
       <div className="panelHeader methodologyHeader">
         <div>
           <span className="eyeline">Methodology</span>
-          <h2>Math and logic behind the recommendation</h2>
+          <h2>Math and logic behind the quote estimate</h2>
         </div>
         <span>Live values from the current assumptions</span>
       </div>
@@ -231,13 +231,13 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               <h3>What the model is solving</h3>
               <p>
                 The calculator asks whether the survivor has enough real capital at
-                each modeled death year. Capital supply is assets, employer coverage,
+                each modeled death year. Capital supply is assets, credited employer coverage,
                 survivor pension value, and the personal term ladder. Capital demand
                 is household spending need plus discrete support liabilities and
                 selected mortgage demand, reduced by credited Social Security.
               </p>
               <p>
-                Income PV is shown as a comparison and sensitivity. The actual policy
+                Income PV is shown as a comparison and sensitivity. The suggested quote
                 ladder is solved against spending-basis capital sufficiency.
               </p>
             </div>
@@ -260,7 +260,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
               />
             </div>
             <div className="methodologyNote">
-              <strong>What to quote:</strong> the recommended policy amounts are
+              <strong>What to quote:</strong> the suggested policy amounts are
               nominal face amounts to quote today. The sufficiency chart converts
               those nominal benefits into real present-year dollars at each death year.
             </div>
@@ -438,7 +438,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                   <li>Does not model underwriting class differences.</li>
                   <li>Social Security survivor benefits are rough estimates from simplified 2026 SSA rules.</li>
                   <li>College is excluded from the base ladder and shown as a sensitivity only.</li>
-                  <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base.</li>
+                  <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base; leave it off unless vesting and survivor terms are confirmed.</li>
                   <li>Uses integer death years.</li>
                   <li>Term coverage is modeled through years 0-29.</li>
                   <li>Assumes contributions are constant real dollars.</li>
@@ -451,6 +451,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
                   <li>Compare against the DIME method.</li>
                   <li>Compare against 10-15x income as an upper-bound screen.</li>
                   <li>Quote nearby rounded ladders, not just the exact output.</li>
+                  <li>Confirm employer group portability before relying on more than partial credit.</li>
                   <li>Re-run with conservative return and inflation assumptions.</li>
                 </ol>
               </article>
@@ -476,7 +477,7 @@ export function MethodologyPanel({ inputs, result }: MethodologyPanelProps) {
           <FieldFormula
             name="Nominal quote amounts"
             formula="nominalRequiredCoverage = ceil(exactNominalCoverageRequired / coverageIncrement) * coverageIncrement"
-            explanation="Recommended policies are nominal face amounts to quote today; sufficiency displays them in real dollars by death year."
+            explanation="Suggested policies are nominal face amounts to quote today; sufficiency displays them in real dollars by death year."
           />
         </div>
       </div>

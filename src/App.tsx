@@ -386,6 +386,9 @@ export function App() {
   const firstRow = result.rows[0];
   const maxUndercoverage = Math.max(...result.rows.slice(0, 30).map((row) => row.undercoverage));
   const totalPersonalCoverage = result.totalInitialCoverage;
+  const employerCreditPercent = percentFormatter.format(
+    inputs.includeEmployerCoverage ? inputs.employerCoverageCreditFactor : 0
+  );
 
   const setInput = <K extends keyof CalculatorInputs>(key: K, value: CalculatorInputs[K]) => {
     setInputs((current) => ({ ...current, [key]: value }));
@@ -424,10 +427,18 @@ export function App() {
       tone: "blue"
     },
     {
-      label: "Recommended coverage",
+      label: "Suggested quote amount",
       value: money(result.totalInitialCoverage),
-      note: "Nominal face amount to purchase",
+      note: "Balanced pre-purchase estimate",
       tone: "success"
+    },
+    {
+      label: "Employer group credit",
+      value: money(firstRow?.creditedEmployerCoverage ?? 0),
+      note: inputs.includeEmployerCoverage
+        ? `${employerCreditPercent} of current group benefit`
+        : "Excluded from modeled supply",
+      tone: "blue"
     },
     {
       label: "Years of coverage",
@@ -437,7 +448,7 @@ export function App() {
     {
       label: "Capital sufficiency",
       value: percentFormatter.format(capitalSufficiencyPercent),
-      note: "At target confidence",
+      note: "Under current assumptions",
       tone: "success"
     }
   ];
@@ -524,7 +535,7 @@ export function App() {
                 checked={inputs.includeEmployerCoverage}
                 onChange={(checked) => setInput("includeEmployerCoverage", checked)}
                 label="Employer coverage"
-                description="Credit current TPMG/employer group coverage in modeled supply."
+                description={`Credit ${employerCreditPercent} of current TPMG/employer group coverage in modeled supply.`}
               />
               <Toggle
                 checked={inputs.includeSurvivorPension}
@@ -560,7 +571,7 @@ export function App() {
               </article>
 
               <article className="stressScenario">
-                <h4>Base Case</h4>
+                <h4>Balanced Base</h4>
                 <RateField
                   label="Real return"
                   value={inputs.realReturnBaseCase}
@@ -797,9 +808,10 @@ export function App() {
           <section className="panel heroPanel">
             <div>
               <span className="eyeline"><ShieldCheck size={16} /> Solver result</span>
-              <h2>Recommended ladder</h2>
+              <h2>Balanced quote estimate</h2>
               <p>
-                Recommended policies are solved against spending-basis capital sufficiency.
+                Suggested quote amounts are solved against spending-basis capital sufficiency.
+                The default stance partially credits employer coverage and excludes unverified pension offsets.
                 Income replacement is shown as an upper-bound sensitivity.
                 Real discount rate: {percentFormatter.format(result.realDiscountRate)}.
                 Real asset growth: {percentFormatter.format(result.realAssetGrowthRate)}.
@@ -825,7 +837,7 @@ export function App() {
             <div className="panelHeader">
               <div>
                 <h2>Scenario Matrix</h2>
-                <span>Primary recommendation uses the selected mortgage strategy; comparison shows payoff versus continuing payments.</span>
+                <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff versus continuing payments.</span>
               </div>
             </div>
             <div className="tableWrap scenarioTable">
@@ -841,7 +853,7 @@ export function App() {
                     <th>Personal term</th>
                     <th>Total modeled</th>
                     <th>Shortfall/surplus</th>
-                    <th>Primary recommendation</th>
+                    <th>Primary quote estimate</th>
                     <th>Comparison: Payoff / Continue</th>
                   </tr>
                 </thead>
@@ -883,7 +895,7 @@ export function App() {
 
           <section className="panel ladderPanel">
             <div className="panelHeader">
-              <h2>Recommended ladder</h2>
+              <h2>Suggested quote ladder</h2>
               <button type="button" className="secondaryButton">Edit ladder</button>
             </div>
             <div className="tableWrap ladderTable">
@@ -1004,7 +1016,7 @@ export function App() {
             </div>
             <div className="reportMeta">
               <span>Selected target: {inputs.selectedNeedBasis}</span>
-              <span>Employer coverage: {inputs.includeEmployerCoverage ? "credited" : "excluded"}</span>
+              <span>Employer coverage: {inputs.includeEmployerCoverage ? `${employerCreditPercent} credited` : "excluded"}</span>
               <span>Survivor pension: {inputs.includeSurvivorPension ? "included" : "excluded"}</span>
               <span>Weighted face amount: {money(result.weightedFaceAmount)}</span>
               <span>College: sensitivity only</span>
