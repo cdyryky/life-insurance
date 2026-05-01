@@ -25,6 +25,7 @@ import type {
   MortgageStrategy,
   NeedBasis,
   PremiumWeightMode,
+  ScenarioSummary,
   SocialSecurityBenefitMode,
   TermLength,
   YearlyRow
@@ -49,10 +50,23 @@ function money(value: number) {
   return currencyFormatter.format(value);
 }
 
-function mortgageStrategyLabel(strategy: string) {
-  return strategy === "payoff_at_death"
-    ? "Payoff at death"
-    : "Continue payments";
+function mortgageStrategyLabel(strategy: MortgageStrategy) {
+  if (strategy === "payoff_at_death") return "Pay off mortgage";
+  if (strategy === "partial_paydown") return "Partial paydown";
+  return "Keep payments";
+}
+
+export function employerScenarioCreditText(scenario: Pick<
+  ScenarioSummary,
+  "employerCoverageCreditFactor" | "creditedEmployerGroupCoverage"
+>) {
+  if (
+    scenario.employerCoverageCreditFactor === 0 ||
+    scenario.creditedEmployerGroupCoverage === 0
+  ) {
+    return "Excluded / 0% credited";
+  }
+  return `${percentFormatter.format(scenario.employerCoverageCreditFactor)} credited`;
 }
 
 function parseNumber(value: string) {
@@ -131,7 +145,10 @@ function Segmented<T extends string>({
   options: { value: T; label: string }[];
 }) {
   return (
-    <div className="segmented">
+    <div
+      className="segmented"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
       {options.map((option) => (
         <button
           key={option.value}
@@ -302,10 +319,66 @@ function Chart({ rows }: { rows: YearlyRow[] }) {
       <div className="legend">
         <span><i className="blue" />Income PV</span>
         <span><i className="green" />Spending PV</span>
-        <span><i className="red" />Need after assets/employer</span>
+        <span><i className="red" />Net need after offsets</span>
         <span><i className="black" />Real coverage</span>
       </div>
     </div>
+  );
+}
+
+function scenarioTermAmount(scenario: ScenarioSummary, term: TermLength) {
+  if (term === 10) return scenario.recommended10YearTerm;
+  if (term === 15) return scenario.recommended15YearTerm;
+  if (term === 20) return scenario.recommended20YearTerm;
+  return scenario.recommended30YearTerm;
+}
+
+function ScenarioRangeDashboard({ scenarios }: { scenarios: ScenarioSummary[] }) {
+  const lowerNeed = scenarios.find((scenario) => scenario.id === "optimistic");
+  const conservative = scenarios.find((scenario) => scenario.id === "conservative");
+  const coverageValues = scenarios.map((scenario) => scenario.personallyOwnedTermCoverage);
+  const lowCoverage = coverageValues.length ? Math.min(...coverageValues) : 0;
+  const highCoverage = coverageValues.length ? Math.max(...coverageValues) : 0;
+
+  return (
+    <section className="decisionSummary rangeSummary" id="dashboard">
+      <div className="rangeHeader">
+        <span className="eyeline"><ShieldCheck size={16} /> Modeled coverage range</span>
+        <h2>Lower-need scenario to conservative stress scenario</h2>
+        <strong>{money(lowCoverage)} - {money(highCoverage)}</strong>
+        <p>
+          These are scenario outputs, not one precise answer. The base case uses your
+          selected mortgage strategy and configured offset credits.
+        </p>
+      </div>
+      <div className="scenarioCardGrid" aria-label="Coverage range scenarios">
+        {scenarios.map((scenario) => (
+          <article key={scenario.id} className={`scenarioCard ${scenario.id}`}>
+            <div className="scenarioCardHeader">
+              <span>{scenario.label}</span>
+              <strong>{money(scenario.personallyOwnedTermCoverage)}</strong>
+            </div>
+            <div className="scenarioMeta">
+              <span>Return {percentFormatter.format(scenario.realReturn)}</span>
+              <span>{employerScenarioCreditText(scenario)}</span>
+              <span>SS {percentFormatter.format(scenario.socialSecurityCreditFactor)} credited</span>
+            </div>
+            <div className="scenarioTermGrid">
+              {TERMS.map((term) => (
+                <div key={term}>
+                  <span>{term}yr</span>
+                  <strong>{money(scenarioTermAmount(scenario, term))}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="rangeFootnote">
+        <span>Lower bound shown: {lowerNeed?.label ?? "lower-need scenario"}</span>
+        <span>Stress bound shown: {conservative?.label ?? "conservative scenario"}</span>
+      </div>
+    </section>
   );
 }
 
@@ -324,7 +397,9 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
             <th>College</th>
             <th>SS credit</th>
             <th>Mortgage</th>
-            <th>Accessible assets</th>
+            <th>Durable assets</th>
+            <th>Retirement offset</th>
+            <th>Pension PV</th>
             <th>Employer credit</th>
             <th>Net need</th>
             <th>Personal ladder</th>
@@ -343,7 +418,9 @@ function NeedCoverageTable({ rows }: { rows: YearlyRow[] }) {
               <td>{money(row.collegeFundingPv)}</td>
               <td>{money(row.creditedSocialSecuritySurvivorPv)}</td>
               <td>{money(row.realMortgageDemand)}</td>
-              <td>{money(row.accessibleAssets)}</td>
+              <td>{money(row.liquidAssets)}</td>
+              <td>{money(row.retirementAssetsAfterHaircut)}</td>
+              <td>{money(row.pensionTaxAdjustedValue)}</td>
               <td>{money(row.creditedEmployerCoverage)}</td>
               <td>{money(row.spendingNetNeedReal)}</td>
               <td>{money(row.realPersonalCoverage)}</td>
@@ -409,7 +486,9 @@ function MiniTrace({ row }: { row?: YearlyRow }) {
     ["College funding", row?.collegeFundingPv ?? 0],
     ["Mortgage demand", row?.realMortgageDemand ?? 0],
     ["Social Security credit", -(row?.creditedSocialSecuritySurvivorPv ?? 0)],
-    ["Accessible assets", -(row?.accessibleAssets ?? 0)],
+    ["Durable assets", -(row?.liquidAssets ?? 0)],
+    ["Retirement after haircut", -(row?.retirementAssetsAfterHaircut ?? 0)],
+    ["Pension value", -(row?.pensionTaxAdjustedValue ?? 0)],
     ["Employer credit", -(row?.creditedEmployerCoverage ?? 0)],
     ["Net personal need", row?.spendingNetNeedReal ?? 0]
   ] as const;
@@ -419,8 +498,8 @@ function MiniTrace({ row }: { row?: YearlyRow }) {
       <div className="railHeader">
         <span className="railIcon"><Target size={16} /></span>
         <div>
-          <h2>Year 0 trace</h2>
-          <p>Real present-year dollars.</p>
+          <h2>Year 0 offset trace</h2>
+          <p>Separated by reliability.</p>
         </div>
       </div>
       <div className="miniTraceList">
@@ -603,28 +682,8 @@ export function App() {
         <button type="button" className="linkButton">Edit</button>
       </section>
 
-      <section className="decisionSummary" id="dashboard">
-        <div className="recommendationCard">
-          <span className="eyeline"><ShieldCheck size={16} /> Balanced Base</span>
-          <h2>Recommended personal term</h2>
-          <strong>{money(totalPersonalCoverage)}</strong>
-          <p>
-            Nominal face amount solved against spending-basis capital sufficiency.
-            Worst modeled gap: {money(result.capitalSufficiency.worstGap)} in year{" "}
-            {result.capitalSufficiency.worstGapYear}.
-          </p>
-        </div>
-        <div className="termSummaryGrid" aria-label="Recommended policy amounts">
-          {result.policies.map((policy) => (
-            <article key={policy.termYears}>
-              <span>{policy.termYears}-year</span>
-              <strong>{money(policy.amount)}</strong>
-              <small>Nominal face, years {activeYearsLabel(policy.termYears)}</small>
-            </article>
-          ))}
-        </div>
-        <ConfidenceStrip premiumWeightMode={inputs.premiumWeightMode} />
-      </section>
+      <ScenarioRangeDashboard scenarios={result.scenarioMatrix} />
+      <ConfidenceStrip premiumWeightMode={inputs.premiumWeightMode} />
 
       <section className="workspace">
         <aside className="controls">
@@ -662,9 +721,20 @@ export function App() {
                 onChange={(value) => setInput("mortgageStrategy", value)}
                 options={[
                   { value: "payoff_at_death", label: "Pay off mortgage" },
+                  { value: "partial_paydown", label: "Partial paydown" },
                   { value: "continue_monthly_payments", label: "Keep payments" }
                 ]}
               />
+              {inputs.mortgageStrategy === "partial_paydown" ? (
+                <RateField
+                  label="Mortgage paid off for survivor"
+                  value={inputs.mortgagePaydownPercent}
+                  onChange={(v) =>
+                    setInput("mortgagePaydownPercent", Math.min(1, Math.max(0, v)))
+                  }
+                  help="Leave the surviving household with this share of the current mortgage paid off."
+                />
+              ) : null}
             </div>
 
             <div className="featureToggles" aria-label="Feature toggles">
@@ -727,7 +797,7 @@ export function App() {
               </article>
 
               <article className="stressScenario">
-                <h4>Optimistic / Lowest Coverage</h4>
+                <h4>Lower-Need Scenario</h4>
                 <RateField
                   label="Real return"
                   value={inputs.realReturnOptimistic}
@@ -983,39 +1053,35 @@ export function App() {
         </aside>
 
         <section className="results">
-          <section className="panel heroPanel">
-            <div>
-              <span className="eyeline"><ShieldCheck size={16} /> Solver result</span>
-              <h2>Recommended personal term</h2>
-              <p>
-                Suggested nominal face amounts are solved against spending-basis capital sufficiency.
-                The default stance partially credits employer coverage and excludes unverified pension offsets.
-                Income replacement is shown as an upper-bound sensitivity.
-                Real discount rate: {percentFormatter.format(result.realDiscountRate)}.
-                Real asset growth: {percentFormatter.format(result.realAssetGrowthRate)}.
-                Real retirement growth: {percentFormatter.format(result.realRetirementGrowthRate)}.
-                Effective retirement haircut: {percentFormatter.format(result.effectiveRetirementTaxHaircut)}.
-              </p>
+          <section className="panel">
+            <div className="panelHeader">
+              <div>
+                <h2>Need and Coverage by Year</h2>
+                <span>Real present-year dollars; graph reflects the selected base-case mortgage strategy.</span>
+              </div>
+              <div className="chartActions">
+                <Segmented<"chart" | "table">
+                  value={needCoverageView}
+                  onChange={setNeedCoverageView}
+                  options={[
+                    { value: "chart", label: "Chart" },
+                    { value: "table", label: "Table" }
+                  ]}
+                />
+              </div>
             </div>
-            <div className="policyGrid" aria-label="Policy summary cards">
-              {result.policies.map((policy) => (
-                <article key={policy.termYears}>
-                  <span>{policy.termYears}-year</span>
-                  <strong>{money(policy.amount)}</strong>
-                  <small>
-                    Years {activeYearsLabel(policy.termYears)} · Weight{" "}
-                    {policy.costWeight.toFixed(2)}
-                  </small>
-                </article>
-              ))}
-            </div>
+            {needCoverageView === "chart" ? (
+              <Chart rows={result.rows} />
+            ) : (
+              <NeedCoverageTable rows={result.rows} />
+            )}
           </section>
 
           <section className="panel">
             <div className="panelHeader">
               <div>
                 <h2>Scenario Matrix</h2>
-                <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff versus continuing payments.</span>
+                <span>Primary quote estimate uses the selected mortgage strategy; comparison shows payoff, partial paydown, and continuing payments.</span>
               </div>
             </div>
             <div className="tableWrap scenarioTable">
@@ -1031,14 +1097,17 @@ export function App() {
                     <th>Personal term</th>
                     <th>Total modeled</th>
                     <th>Shortfall/surplus</th>
-                    <th>Primary quote estimate</th>
-                    <th>Comparison: Payoff / Continue</th>
+                    <th>Mortgage strategy</th>
+                    <th>Payoff / partial / keep payments</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.scenarioMatrix.map((scenario) => {
                     const payoff = scenario.mortgageStrategyComparison.find(
                       (item) => item.strategy === "payoff_at_death"
+                    );
+                    const partial = scenario.mortgageStrategyComparison.find(
+                      (item) => item.strategy === "partial_paydown"
                     );
                     const continuePayments = scenario.mortgageStrategyComparison.find(
                       (item) => item.strategy === "continue_monthly_payments"
@@ -1047,7 +1116,7 @@ export function App() {
                       <tr key={scenario.id}>
                         <td>{scenario.label}</td>
                         <td>{percentFormatter.format(scenario.realReturn)}</td>
-                        <td>{percentFormatter.format(scenario.employerCoverageCreditFactor)}</td>
+                        <td>{employerScenarioCreditText(scenario)}</td>
                         <td>{percentFormatter.format(scenario.socialSecurityCreditFactor)}</td>
                         <td>{money(scenario.currentEmployerGroupCoverage)}</td>
                         <td>{money(scenario.creditedEmployerGroupCoverage)}</td>
@@ -1061,6 +1130,7 @@ export function App() {
                         <td>{mortgageStrategyLabel(scenario.mortgageStrategy)}</td>
                         <td>
                           {money(payoff?.totalInitialCoverage ?? 0)} /{" "}
+                          {money(partial?.totalInitialCoverage ?? 0)} /{" "}
                           {money(continuePayments?.totalInitialCoverage ?? 0)}
                         </td>
                       </tr>
@@ -1125,28 +1195,6 @@ export function App() {
 
           <section className="panel">
             <div className="panelHeader">
-              <h2>Need and Coverage by Year</h2>
-              <div className="chartActions">
-                <Segmented<"chart" | "table">
-                  value={needCoverageView}
-                  onChange={setNeedCoverageView}
-                  options={[
-                    { value: "chart", label: "Chart" },
-                    { value: "table", label: "Table" }
-                  ]}
-                />
-                <span>Real present-year dollars</span>
-              </div>
-            </div>
-            {needCoverageView === "chart" ? (
-              <Chart rows={result.rows} />
-            ) : (
-              <NeedCoverageTable rows={result.rows} />
-            )}
-          </section>
-
-          <section className="panel">
-            <div className="panelHeader">
               <h2>Capital Sufficiency</h2>
               <span>Real present-year dollars</span>
             </div>
@@ -1168,12 +1216,27 @@ export function App() {
               <article>
                 <span>Year 0 supply</span>
                 <strong>{money(firstRow?.capitalSupply ?? 0)}</strong>
-                <small>Assets + credited employer + personal coverage</small>
+                <small>Grouped offsets + credited employer + personal coverage</small>
               </article>
               <article>
-                <span>Pension PV</span>
-                <strong>{money(firstRow?.pensionTaxAdjustedValue ?? 0)}</strong>
-                <small>Real tax-adjusted survivor pension PV</small>
+                <span>Durable assets</span>
+                <strong>{money(firstRow?.liquidAssets ?? 0)}</strong>
+                <small>Cash and taxable investments</small>
+              </article>
+              <article>
+                <span>Retirement after haircut</span>
+                <strong>{money(firstRow?.retirementAssetsAfterHaircut ?? 0)}</strong>
+                <small>Beneficiary-accessible estimate</small>
+              </article>
+              <article>
+                <span>Employer credit</span>
+                <strong>{money(firstRow?.creditedEmployerCoverage ?? 0)}</strong>
+                <small>{inputs.includeEmployerCoverage ? `${employerCreditPercent} of group coverage` : "Excluded"}</small>
+              </article>
+              <article>
+                <span>Pension / survivor benefits</span>
+                <strong>{money((firstRow?.pensionTaxAdjustedValue ?? 0) + (firstRow?.creditedSocialSecuritySurvivorPv ?? 0))}</strong>
+                <small>Pension PV plus credited Social Security</small>
               </article>
               <article>
                 <span>Year 0 demand</span>
@@ -1196,6 +1259,7 @@ export function App() {
               <span>Selected target: {inputs.selectedNeedBasis}</span>
               <span>Employer coverage: {inputs.includeEmployerCoverage ? `${employerCreditPercent} credited` : "excluded"}</span>
               <span>Survivor pension: {inputs.includeSurvivorPension ? "included" : "excluded"}</span>
+              <span>Mortgage: {mortgageStrategyLabel(inputs.mortgageStrategy)}</span>
               <span>Weighted face amount: {money(result.weightedFaceAmount)}</span>
               <span>College: {inputs.collegeFundingMode}</span>
               <span>Social Security: {inputs.socialSecurityBenefitMode}</span>
@@ -1206,6 +1270,8 @@ export function App() {
                   <tr>
                     <th>Year</th>
                     <th>Net need</th>
+                    <th>Durable assets</th>
+                    <th>Retirement offset</th>
                     <th>SS credit</th>
                     <th>Pension PV</th>
                     <th>Employer credit</th>
@@ -1219,6 +1285,8 @@ export function App() {
                     <tr key={row.year}>
                       <td>{row.year}</td>
                       <td>{money(row.spendingNetNeedReal)}</td>
+                      <td>{money(row.liquidAssets)}</td>
+                      <td>{money(row.retirementAssetsAfterHaircut)}</td>
                       <td>{money(row.creditedSocialSecuritySurvivorPv)}</td>
                       <td>{money(row.pensionTaxAdjustedValue)}</td>
                       <td>{money(row.creditedEmployerCoverage)}</td>

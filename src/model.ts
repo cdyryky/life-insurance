@@ -501,6 +501,8 @@ export function buildBaseNeedRows(
       year
     );
     const mortgagePayoffDemandReal = realMortgagePrincipal;
+    const mortgagePartialPaydownDemandReal =
+      realMortgagePrincipal * clamp(inputs.mortgagePaydownPercent, 0, 1);
     const mortgageContinuePaymentsDemandReal =
       presentValueRemainingMortgagePayments(
         inputs.mortgageBalance,
@@ -515,6 +517,8 @@ export function buildBaseNeedRows(
     const realMortgageDemand =
       selectedMortgageStrategy === "payoff_at_death"
         ? mortgagePayoffDemandReal
+        : selectedMortgageStrategy === "partial_paydown"
+          ? mortgagePartialPaydownDemandReal
         : mortgageContinuePaymentsDemandReal;
     const liquidAssets = accumulateRealAssets(
       inputs.currentLiquidAssets,
@@ -597,6 +601,7 @@ export function buildBaseNeedRows(
       nominalMortgagePrincipal,
       realMortgageDemand,
       mortgagePayoffDemandReal,
+      mortgagePartialPaydownDemandReal,
       mortgageContinuePaymentsDemandReal,
       selectedMortgageStrategy,
       realMortgagePrincipal,
@@ -887,7 +892,7 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
     },
     {
       id: "optimistic",
-      label: "Optimistic / Lowest Coverage",
+      label: "Lower-Need Scenario",
       realReturn: inputs.realReturnOptimistic,
       employerCoverageCreditFactor: 1,
       socialSecurityCreditFactor: 1,
@@ -910,12 +915,20 @@ function buildScenarioSummary(
     ...commonOptions,
     mortgageStrategy: "payoff_at_death"
   });
+  const partialPaydown = calculateSingleLadder(inputs, {
+    ...commonOptions,
+    mortgageStrategy: "partial_paydown"
+  });
   const continuePayments = calculateSingleLadder(inputs, {
     ...commonOptions,
     mortgageStrategy: "continue_monthly_payments"
   });
   const primary =
-    inputs.mortgageStrategy === "payoff_at_death" ? payoff : continuePayments;
+    inputs.mortgageStrategy === "payoff_at_death"
+      ? payoff
+      : inputs.mortgageStrategy === "partial_paydown"
+        ? partialPaydown
+        : continuePayments;
   const firstRow = primary.rows[0];
   const estimatedShortfall = Math.max(0, -primary.capitalSufficiency.worstGap);
   const estimatedSurplus = Math.max(0, primary.capitalSufficiency.worstGap);
@@ -948,6 +961,13 @@ function buildScenarioSummary(
         mortgageDemandYear0: payoff.rows[0].realMortgageDemand
       },
       {
+        strategy: "partial_paydown",
+        totalInitialCoverage: partialPaydown.totalInitialCoverage,
+        worstGap: partialPaydown.capitalSufficiency.worstGap,
+        firstDeficitYear: partialPaydown.capitalSufficiency.firstDeficitYear,
+        mortgageDemandYear0: partialPaydown.rows[0].realMortgageDemand
+      },
+      {
         strategy: "continue_monthly_payments",
         totalInitialCoverage: continuePayments.totalInitialCoverage,
         worstGap: continuePayments.capitalSufficiency.worstGap,
@@ -969,12 +989,20 @@ export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
     ...baseOptions,
     mortgageStrategy: "payoff_at_death"
   });
+  const partialPaydown = calculateSingleLadder(inputs, {
+    ...baseOptions,
+    mortgageStrategy: "partial_paydown"
+  });
   const continuePayments = calculateSingleLadder(inputs, {
     ...baseOptions,
     mortgageStrategy: "continue_monthly_payments"
   });
   const result =
-    inputs.mortgageStrategy === "payoff_at_death" ? payoff : continuePayments;
+    inputs.mortgageStrategy === "payoff_at_death"
+      ? payoff
+      : inputs.mortgageStrategy === "partial_paydown"
+        ? partialPaydown
+        : continuePayments;
   const matrix = scenarioConfigs(inputs).map((config) =>
     buildScenarioSummary(inputs, config)
   );

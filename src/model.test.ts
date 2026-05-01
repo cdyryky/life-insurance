@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { employerScenarioCreditText } from "./App";
 import { defaultInputs } from "./defaults";
 import { activeYearsLabel } from "./format";
 import {
@@ -38,6 +39,7 @@ function testRow(year: number, nominalRequiredCoverage: number): YearlyRow {
     nominalMortgagePrincipal: 0,
     realMortgageDemand: 0,
     mortgagePayoffDemandReal: 0,
+    mortgagePartialPaydownDemandReal: 0,
     mortgageContinuePaymentsDemandReal: 0,
     selectedMortgageStrategy: "payoff_at_death",
     realMortgagePrincipal: 0,
@@ -98,6 +100,7 @@ describe("life insurance model", () => {
     expect(defaultInputs.collegeFundingMode).toBe("excluded");
     expect(defaultInputs.socialSecurityBenefitMode).toBe("proxy");
     expect(defaultInputs.manualAnnualSocialSecuritySurvivorBenefit).toBe(0);
+    expect(defaultInputs.mortgagePaydownPercent).toBe(0.5);
   });
 
   it("bases the default quote estimate on partial employer coverage credit", () => {
@@ -608,7 +611,8 @@ describe("life insurance model", () => {
       mortgageAnnualRate: 0.065,
       mortgageYearsRemaining: 15,
       inflationRate: 0.025,
-      realReturnBaseCase: 0.035
+      realReturnBaseCase: 0.035,
+      mortgagePaydownPercent: 0.5
     };
     const continueRows = buildBaseNeedRows({
       ...inputs,
@@ -623,17 +627,32 @@ describe("life insurance model", () => {
       realReturnOverride: inputs.realReturnBaseCase,
       mortgageStrategy: "payoff_at_death"
     }).rows;
+    const partialRows = buildBaseNeedRows({
+      ...inputs,
+      mortgageStrategy: "partial_paydown"
+    }, {
+      realReturnOverride: inputs.realReturnBaseCase
+    }).rows;
 
     expect(continueRows[0].mortgageContinuePaymentsDemandReal).toBeCloseTo(
       presentValueRemainingMortgagePayments(1500000, 0.065, 15, 0, 0.025, 0.035),
       0
     );
     expect(continueRows[0].mortgagePayoffDemandReal).toBe(1500000);
+    expect(continueRows[0].mortgagePartialPaydownDemandReal).toBe(750000);
+    expect(partialRows[0].realMortgageDemand).toBe(750000);
+    expect(partialRows[0].realMortgageDemand).toBeLessThan(
+      payoffRows[0].realMortgageDemand
+    );
+    expect(partialRows[0].realMortgageDemand).toBeLessThan(
+      continueRows[0].realMortgageDemand
+    );
     expect(continueRows[0].mortgageContinuePaymentsDemandReal).toBeGreaterThan(
       continueRows[0].mortgagePayoffDemandReal
     );
     expect(continueRows[0].selectedMortgageStrategy).toBe("continue_monthly_payments");
     expect(payoffRows[0].selectedMortgageStrategy).toBe("payoff_at_death");
+    expect(partialRows[0].selectedMortgageStrategy).toBe("partial_paydown");
     expect(calculateLadder({
       ...inputs,
       mortgageStrategy: "continue_monthly_payments"
@@ -644,6 +663,10 @@ describe("life insurance model", () => {
     }).rows[0].selectedMortgageStrategy).toBe(
       "payoff_at_death"
     );
+    expect(calculateLadder({
+      ...inputs,
+      mortgageStrategy: "partial_paydown"
+    }).rows[0].selectedMortgageStrategy).toBe("partial_paydown");
   });
 
   it("deflates employer coverage then drops after the configured end year", () => {
@@ -905,7 +928,7 @@ describe("life insurance model", () => {
     );
 
     expect(result.scenarioMatrix.map((scenario) => scenario.label)).toContain(
-      "Optimistic / Lowest Coverage"
+      "Lower-Need Scenario"
     );
     expect(conservative?.realReturn).toBe(defaultInputs.realReturnConservative);
     expect(conservative?.employerCoverageCreditFactor).toBe(0);
@@ -921,14 +944,31 @@ describe("life insurance model", () => {
     ]);
     expect(
       result.scenarioMatrix.every(
-        (scenario) => scenario.mortgageStrategyComparison.length === 2
+        (scenario) => scenario.mortgageStrategyComparison.length === 3
       )
     ).toBe(true);
+    expect(conservative?.creditedEmployerGroupCoverage).toBe(0);
+    expect(
+      conservative?.mortgageStrategyComparison.map((comparison) => comparison.strategy)
+    ).toEqual([
+      "payoff_at_death",
+      "partial_paydown",
+      "continue_monthly_payments"
+    ]);
     expect(result.recommended10YearTerm).toBe(
       result.policies.find((policy) => policy.termYears === 10)?.amount
     );
     expect(base?.personallyOwnedTermCoverage).toBe(result.totalInitialCoverage);
     expect(result.coverageGapByYear).toHaveLength(31);
+  });
+
+  it("renders conservative employer coverage as excluded in scenario UI text", () => {
+    const conservative = calculateLadder(defaultInputs).scenarioMatrix.find(
+      (scenario) => scenario.id === "conservative"
+    );
+
+    expect(conservative).toBeDefined();
+    expect(employerScenarioCreditText(conservative!)).toBe("Excluded / 0% credited");
   });
 
   it("manual mode preserves entered cost weights", () => {

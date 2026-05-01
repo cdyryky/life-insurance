@@ -4,7 +4,10 @@ export type TermLength = 10 | 15 | 20 | 30;
 
 export type PremiumWeightMode = "quote-derived" | "manual";
 
-export type MortgageStrategy = "payoff_at_death" | "continue_monthly_payments";
+export type MortgageStrategy =
+  | "payoff_at_death"
+  | "partial_paydown"
+  | "continue_monthly_payments";
 
 export type CollegeFundingMode = "excluded" | "included";
 
@@ -55,6 +58,7 @@ export type CalculatorInputs = {
   mortgageAnnualRate: number;
   mortgageYearsRemaining: number;
   mortgageStrategy: MortgageStrategy;
+  mortgagePaydownPercent: number;
   employerCoverageAmount: number;
   employerCoverageEndYear: number;
   employerCoverageCreditFactor: number;
@@ -96,6 +100,7 @@ export type YearlyRow = {
   nominalMortgagePrincipal: number;
   realMortgageDemand: number;
   mortgagePayoffDemandReal: number;
+  mortgagePartialPaydownDemandReal: number;
   mortgageContinuePaymentsDemandReal: number;
   selectedMortgageStrategy: MortgageStrategy;
   realMortgagePrincipal: number;

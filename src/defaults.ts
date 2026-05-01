@@ -40,6 +40,7 @@ export const defaultInputs: CalculatorInputs = {
   mortgageAnnualRate: 0.06,
   mortgageYearsRemaining: 15,
   mortgageStrategy: "payoff_at_death",
+  mortgagePaydownPercent: 0.5,
   employerCoverageAmount: 2000000,
   employerCoverageEndYear: 28,
   employerCoverageCreditFactor: 0.5,
