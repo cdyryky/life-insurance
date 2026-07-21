@@ -340,6 +340,29 @@ a.secondaryButton {
   line-height: 1.5;
 }
 
+.readinessBadge {
+  display: inline-flex;
+  width: fit-content;
+  margin: 10px 0 8px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.readinessBadge.draft {
+  color: #8a4b0f;
+  background: #fff4df;
+  border: 1px solid #f2cf96;
+}
+
+.readinessBadge.ready {
+  color: var(--primary);
+  background: #eaf6f2;
+  border: 1px solid rgba(21, 94, 76, 0.32);
+}
+
 .scenarioCardGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -734,34 +757,27 @@ a.secondaryButton {
   display: grid;
 }
 
-.checkList article {
+.checkList label {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   gap: 10px;
   padding: 13px 14px;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
 }
 
-.checkList article:last-child {
+.checkList label:last-child {
   border-bottom: 0;
 }
 
-.checkList article > span {
+.checkList label > input {
   width: 24px;
   height: 24px;
-  border-radius: 6px;
-  border: 1px solid var(--line-strong);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-  background: #fff;
-  font-size: 0.58rem;
-  font-weight: 820;
+  margin: 0;
+  accent-color: var(--primary);
 }
 
-.checkList article.done > span {
-  border-color: rgba(21, 94, 76, 0.42);
+.checkList label.done {
   background: #eaf6f2;
 }
 
@@ -780,6 +796,15 @@ a.secondaryButton {
   font-size: 0.74rem;
   line-height: 1.35;
   font-weight: 650;
+}
+
+.checklistFootnote {
+  margin: 0;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .railMetric {
@@ -872,6 +897,34 @@ a.secondaryButton {
   font-size: 0.74rem;
   font-weight: 780;
   text-transform: uppercase;
+}
+
+.lockedAssumption {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(21, 94, 76, 0.2);
+  border-radius: 7px;
+  color: #36544c;
+  background: #f1f8f6;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.childAgeList {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.childAgeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.childAgeRow .field {
+  margin: 0;
 }
 
 .inputShell {
@@ -1252,6 +1305,7 @@ a.secondaryButton {
   .methodologyContent,
   .methodologyPrintSummary,
   .reportMeta,
+  .reportDetailGrid,
   .checkList,
   .miniTraceList,
   .sourcePanel ul
@@ -1424,6 +1478,47 @@ tfoot td {
 
 .reportMeta {
   margin-bottom: 12px;
+}
+
+.reportDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.reportDetailGrid article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.reportDetailGrid h3 {
+  margin: 0 0 7px;
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.reportDetailGrid p,
+.reportDetailGrid li {
+  color: #536174;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.reportDetailGrid p + p {
+  margin-top: 7px;
+}
+
+.reportDetailGrid ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.reportDetailGrid a {
+  color: var(--blue);
 }
 
 .methodologyPanel {
@@ -1872,7 +1967,8 @@ tfoot td {
   }
 
   .policyGrid,
-  .capitalGrid {
+  .capitalGrid,
+  .reportDetailGrid {
     grid-template-columns: 1fr;
   }
 
@@ -1887,10 +1983,6 @@ tfoot td {
   .primaryButton,
   .secondaryButton {
     flex: 1;
-  }
-
-  .ladderPanel {
-    display: none;
   }
 
   .chartActions {
@@ -1976,7 +2068,8 @@ tfoot td {
   }
 
   .methodologyTrace,
-  .methodologyGrid {
+  .methodologyGrid,
+  .reportDetailGrid {
     break-inside: avoid;
   }
 }

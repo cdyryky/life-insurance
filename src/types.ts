@@ -2,16 +2,12 @@ export type NeedBasis = "income" | "spending";
 
 export type TermLength = 10 | 15 | 20 | 30;
 
-export type PremiumWeightMode = "quote-derived" | "manual";
-
 export type MortgageStrategy =
   | "payoff_at_death"
   | "partial_paydown"
   | "continue_monthly_payments";
 
 export type CollegeFundingMode = "excluded" | "included";
-
-export type SocialSecurityBenefitMode = "proxy" | "manual";
 
 export type ScenarioId =
   | "conservative"
@@ -26,6 +22,9 @@ export type CalculatorInputs = {
   annualIncome: number;
   monthlyHouseholdNeedExcludingMortgage: number;
   survivingSpouseIncome: number;
+  survivingSpouseIncomeEndAge: number;
+  survivingSpouseRetirementIncome: number;
+  survivingSpouseRetirementIncomeStartAge: number;
   dependentDropOffYear: number;
   dependentDropOffAmount: number;
   childcareHouseholdSupportAnnual: number;
@@ -34,6 +33,7 @@ export type CalculatorInputs = {
   annualCollegeFunding: number;
   collegeStartYear: number;
   collegeEndYear: number;
+  otherImmediateNeeds: number;
   currentLiquidAssets: number;
   annualNonRetirementSavings: number;
   nominalAssetGrowthRate: number;
@@ -64,10 +64,11 @@ export type CalculatorInputs = {
   employerCoverageCreditFactor: number;
   includeEmployerCoverage: boolean;
   socialSecurityCreditFactor: number;
-  socialSecurityBenefitMode: SocialSecurityBenefitMode;
-  manualAnnualSocialSecuritySurvivorBenefit: number;
-  socialSecurityEligibleChildren: number;
-  youngestChildAge: number;
+  socialSecurityStatementVerified: boolean;
+  socialSecurityChildMonthlyBenefit: number;
+  socialSecurityCaregiverMonthlyBenefit: number;
+  socialSecurityFamilyMaximumMonthlyBenefit: number;
+  childAges: number[];
   socialSecurityCoveredAnnualEarnings: number;
   socialSecurityChildSecondarySchoolToAge19: boolean;
   realReturnBaseCase: number;
@@ -76,15 +77,25 @@ export type CalculatorInputs = {
   selectedNeedBasis: NeedBasis;
   coverageIncrement: number;
   maxCoveragePerTerm: number;
-  premiumWeightMode: PremiumWeightMode;
-  costWeights: Record<TermLength, number>;
+  readinessChecks: Record<PurchaseReadinessKey, boolean>;
 };
+
+export type PurchaseReadinessKey =
+  | "spending"
+  | "spouseIncome"
+  | "mortgage"
+  | "assetsSavings"
+  | "children"
+  | "socialSecurity"
+  | "employerPlan"
+  | "beneficiaries"
+  | "immediateObligations"
+  | "affordability";
 
 export type PolicyRecommendation = {
   termYears: TermLength;
   amount: number;
   activeYears: number;
-  costWeight: number;
 };
 
 export type YearlyRow = {
@@ -92,6 +103,7 @@ export type YearlyRow = {
   incomePvNeed: number;
   childcareHouseholdSupportPv: number;
   collegeFundingPv: number;
+  otherImmediateNeedsReal: number;
   grossSocialSecuritySurvivorPv: number;
   creditedSocialSecuritySurvivorPv: number;
   spendingPvNeed: number;
@@ -158,10 +170,7 @@ export type CalculatorResult = {
   realAssetGrowthRate: number;
   realRetirementGrowthRate: number;
   effectiveRetirementTaxHaircut: number;
-  effectiveCostWeights: Record<TermLength, number>;
-  premiumPricingAnchor: number;
   capitalSufficiency: CapitalSufficiency;
-  weightedFaceAmount: number;
   recommended10YearTerm: number;
   recommended15YearTerm: number;
   recommended20YearTerm: number;
@@ -182,8 +191,7 @@ export type MortgageStrategyComparison = {
 export type ScenarioSummary = {
   id: ScenarioId;
   label: string;
-  realReturn: number;
-  employerCoverageCreditFactor: number;
+  realDiscountRate: number;
   socialSecurityCreditFactor: number;
   includesCollegeFunding: boolean;
   currentEmployerGroupCoverage: number;

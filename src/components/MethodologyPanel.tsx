@@ -123,14 +123,14 @@ export function MethodologyPanel({
         note="Used to convert nominal dollars into real present-year dollars."
       />
       <MetricCard
-        label="Nominal discount"
+        label="Pension nominal discount"
         value={percent(inputs.nominalDiscountRate)}
-        note="Entered rate before inflation adjustment."
+        note="Used only for the optional fixed-nominal pension."
       />
       <MetricCard
         label="Real discount"
         value={percent(result.realDiscountRate)}
-        note="Fisher-adjusted rate used for real PV needs."
+        note="Selected base scenario rate used for monthly real spending PV."
       />
       <MetricCard
         label="Coverage increment"
@@ -170,6 +170,7 @@ export function MethodologyPanel({
         value={money(year0.childcareHouseholdSupportPv)}
       />
       <TraceRow label="collegeFundingPv" value={money(year0.collegeFundingPv)} />
+      <TraceRow label="otherImmediateNeedsReal" value={money(year0.otherImmediateNeedsReal)} />
       <TraceRow
         label="creditedSocialSecuritySurvivorPv"
         value={money(year0.creditedSocialSecuritySurvivorPv)}
@@ -177,7 +178,7 @@ export function MethodologyPanel({
       <TraceRow
         label="spendingDemandReal"
         value={money(year0.spendingDemandReal)}
-        note="Household spending + support + college sensitivity + mortgage, less credited Social Security."
+        note="Monthly household spending + immediate obligations + mortgage, less verified Social Security."
       />
       <TraceRow
         label="durableAssets"
@@ -198,7 +199,7 @@ export function MethodologyPanel({
       <TraceRow
         label="spendingNetNeedReal"
         value={money(year0.spendingNetNeedReal)}
-        note="Real personal insurance need after assets and employer coverage."
+        note="Real personal insurance need after accessible assets; employer coverage is supplemental only."
       />
       <TraceRow
         label="nominalRequiredCoverage"
@@ -252,8 +253,8 @@ export function MethodologyPanel({
               <p>
                 The calculator asks whether the survivor has enough real capital at
                 each modeled death year. Capital supply is durable assets,
-                retirement assets after haircut, credited employer coverage,
-                survivor pension value, and the personal term ladder. Capital
+                retirement assets after haircut, survivor pension value, and the
+                personal term ladder. Employer coverage is displayed separately. Capital
                 demand is household spending need plus discrete support liabilities
                 and selected mortgage demand, reduced by credited Social Security.
               </p>
@@ -270,9 +271,9 @@ export function MethodologyPanel({
                 explanation="Future nominal benefits are deflated so the chart can compare all years in today's purchasing power."
               />
               <FieldFormula
-                name="Fisher real rate"
-                formula="realDiscountRate = (1 + nominalDiscountRate) / (1 + inflationRate) - 1"
-                explanation="Present-value needs use a real discount rate so spending assumptions can stay in current dollars."
+                name="Independent return assumptions"
+                formula="spending uses scenarioRealDiscount; assets use (1 + nominalGrowth) / (1 + inflation) - 1"
+                explanation="The 1%/3%/4% spending discount scenarios no longer overwrite liquid-asset or retirement-account growth."
               />
               <FieldFormula
                 name="Capital sufficiency"
@@ -299,13 +300,13 @@ export function MethodologyPanel({
               />
               <FieldFormula
                 name="spendingPvNeed"
-                formula="PV(pre-drop spending deficit) + deferred PV(post-drop spending deficit)"
-                explanation="Spending PV runs to the surviving spouse longevity age and reduces annual need after the dependent drop-off year."
+                formula="sum(monthly spending - earned income - retirement income, discounted monthly)"
+                explanation="Monthly survivor cash flows run to the spouse longevity age, with explicit earned-income and retirement-income phases."
               />
               <FieldFormula
                 name="spendingDemandReal"
-                formula="spendingDemandReal = spending + childcare + college + mortgage - socialSecurityCredit"
-                explanation={`The solver demand combines survivor spending, discrete support liabilities, the selected mortgage strategy, and credited Social Security survivor benefits. Partial mortgage paydown includes both the paydown amount and payments on the unpaid balance. College is currently ${inputs.collegeFundingMode}.`}
+                formula="spendingDemandReal = spending + immediate obligations + mortgage - verifiedSocialSecurity"
+                explanation="Childcare is already included in the monthly spending input, college is excluded, and only verified SSA Statement amounts can reduce the recommendation."
               />
               <FieldFormula
                 name="nominalRequiredCoverage"
@@ -337,7 +338,7 @@ export function MethodologyPanel({
               <FieldFormula
                 name="spendingNetNeedReal"
                 formula="max(0, spendingNeedAfterAssetsReal - creditedEmployerCoverage)"
-                explanation="Durable assets, retirement assets, pension value, employer coverage, and Social Security are displayed separately so lower-reliability offsets do not look equivalent to cash."
+                explanation="Durable assets, retirement assets, pension value, verified Social Security, and supplemental employer coverage remain visibly separate."
               />
             </div>
             <div className="methodologyMetrics">
@@ -362,9 +363,9 @@ export function MethodologyPanel({
                 note={`${inputs.includeSurvivorPension ? "Included" : "Excluded"} in current scenario.`}
               />
               <MetricCard
-                label="Employer coverage"
-                value={money(year0.creditedEmployerCoverage)}
-                note={`${inputs.includeEmployerCoverage ? `${percent(inputs.employerCoverageCreditFactor)} credited in base inputs` : "Excluded"} in current scenario.`}
+                label="Employer supplemental"
+                value={money(year0.realEmployerCoverage)}
+                note="Displayed separately; 0% reduces personally owned coverage."
               />
             </div>
           </>
@@ -375,11 +376,10 @@ export function MethodologyPanel({
             <div className="methodologyIntro">
               <h3>How the ladder is chosen</h3>
               <p>
-                The solver searches 10-, 15-, 20-, and 30-year term amounts in the
-                entered coverage increment. For each death year 0-29, active policies
-                must provide at least the rounded nominal required coverage. Among
-                feasible ladders, the solver minimizes weighted face amount, then
-                total face amount.
+                The solver starts with the peak requirement in years 20-29 for the
+                30-year layer, then adds 20-, 15-, and 10-year layers only where the
+                earlier time buckets require more coverage. Every layer is rounded up
+                to the entered increment and checked across death years 0-29.
               </p>
             </div>
             <div className="policyMethodGrid">
@@ -388,8 +388,7 @@ export function MethodologyPanel({
                   <span>{policy.termYears}-year term</span>
                   <strong>{money(policy.amount)}</strong>
                   <small>
-                    Active years 0-{policy.termYears - 1}; weight{" "}
-                    {policy.costWeight.toFixed(2)}
+                    Active years 0-{policy.termYears - 1}; need-matched layer
                   </small>
                 </article>
               ))}
@@ -401,31 +400,16 @@ export function MethodologyPanel({
                 explanation="A 10-year policy covers years 0-9, 15-year covers 0-14, 20-year covers 0-19, and 30-year covers 0-29."
               />
               <FieldFormula
-                name="weightedFaceAmount"
-                formula="sum(policy.amount * effectiveCostWeights[term])"
-                explanation="Cost weights approximate relative premium cost, so the solver can prefer less expensive term structures."
-              />
-              <FieldFormula
-                name="effectiveCostWeights"
-                formula="quote-derived weights or manual costWeights"
-                explanation={`Current mode: ${inputs.premiumWeightMode}. Quote-derived mode interpolates around the live pricing anchor.`}
+                name="needMatchedLayers"
+                formula="30yr = peak Y20-29; then add 20yr, 15yr, and 10yr amounts for earlier buckets"
+                explanation="The recommendation follows the duration of the modeled need and does not use stale sample premiums."
               />
             </div>
             <div className="methodologyMetrics compact">
               <MetricCard
-                label="Pricing anchor"
-                value={money(result.premiumPricingAnchor)}
-                note="Peak rounded nominal need used for quote-derived weights."
-              />
-              <MetricCard
                 label="Total initial face amount"
                 value={money(totalPersonalCoverage)}
                 note="Sum of nominal policy amounts to quote."
-              />
-              <MetricCard
-                label="Weighted face amount"
-                value={money(result.weightedFaceAmount)}
-                note="Solver objective value, not a premium estimate."
               />
             </div>
           </>
@@ -443,8 +427,8 @@ export function MethodologyPanel({
                     Selected display basis: {inputs.selectedNeedBasis}; solver basis:
                     spending capital sufficiency.
                   </li>
-                  <li>College funding: {inputs.collegeFundingMode}.</li>
-                  <li>Social Security benefit mode: {inputs.socialSecurityBenefitMode}.</li>
+                  <li>College funding: excluded from the recommendation.</li>
+                  <li>Social Security: {inputs.socialSecurityStatementVerified ? "verified Statement amounts credited" : "zero credit until verified"}.</li>
                 </ul>
               </article>
               <article className="formulaCard">
@@ -462,6 +446,16 @@ export function MethodologyPanel({
                   {SOCIAL_SECURITY_2026_SOURCE_NOTES.map((note) => (
                     <li key={note}>{note}</li>
                   ))}
+                  <li><a href="https://www.ssa.gov/faqs/en/questions/KA-01741.html" target="_blank" rel="noreferrer">Personalized Social Security Statement</a></li>
+                  <li><a href="https://www.ssa.gov/OACT/COLA/Benefits.html" target="_blank" rel="noreferrer">SSA AIME and benefit calculation</a></li>
+                  <li><a href="https://www.ssa.gov/survivor/amount" target="_blank" rel="noreferrer">SSA survivor benefit amounts</a></li>
+                </ul>
+              </article>
+              <article className="formulaCard">
+                <h4>Tax source metadata</h4>
+                <ul>
+                  <li><a href="https://www.irs.gov/faqs/interest-dividends-other-types-of-income/life-insurance-disability-insurance-proceeds/life-insurance-disability-insurance-proceeds" target="_blank" rel="noreferrer">IRS: life-insurance proceeds</a></li>
+                  <li><a href="https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-beneficiary" target="_blank" rel="noreferrer">IRS: retirement-plan beneficiaries</a></li>
                 </ul>
               </article>
             </div>
@@ -472,8 +466,8 @@ export function MethodologyPanel({
                   <li>Not financial advice.</li>
                   <li>Does not model premium affordability or premium drag.</li>
                   <li>Does not model underwriting class differences.</li>
-                  <li>Social Security survivor benefits use either the simplified 2026 SSA proxy or the manual annual override.</li>
-                  <li>College is included only when the college funding control is set to included.</li>
+                  <li>The salary-based Social Security proxy is diagnostic only and never reduces the purchase target.</li>
+                  <li>College funding is excluded from the insurance recommendation.</li>
                   <li>Pension is approximate and uses the entered HAC as a fixed nominal annuity base; leave it off unless vesting and survivor terms are confirmed.</li>
                   <li>Uses integer death years.</li>
                   <li>Term coverage is modeled through years 0-29.</li>
@@ -487,7 +481,7 @@ export function MethodologyPanel({
                   <li>Compare against the DIME method.</li>
                   <li>Compare against 10-15x income as an upper-bound screen.</li>
                   <li>Quote nearby rounded ladders, not just the exact output.</li>
-                  <li>Confirm employer group portability before relying on more than partial credit.</li>
+                  <li>Employer group coverage is supplemental and receives zero credit against the personal target.</li>
                   <li>Re-run with conservative return and inflation assumptions.</li>
                 </ol>
               </article>

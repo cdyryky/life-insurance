@@ -12,8 +12,6 @@ import type {
 
 const TERMS: TermLength[] = [10, 15, 20, 30];
 const HORIZON_YEARS = 40;
-const QUOTE_ANCHOR_LOW = 1000000;
-const QUOTE_ANCHOR_HIGH = 2000000;
 export const SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM = 184500;
 export const SOCIAL_SECURITY_2026_PIA_BEND_POINTS = {
   first: 1286,
@@ -30,24 +28,8 @@ export const SOCIAL_SECURITY_2026_SOURCE_NOTES = [
   "SSA 2026 retirement/survivor family maximum bend points: $1,643, $2,371, and $3,093",
   "SSA survivor children generally receive 75% of the parent's benefit, subject to the family maximum"
 ];
-const TERM4SALE_QUOTES: Record<typeof QUOTE_ANCHOR_LOW | typeof QUOTE_ANCHOR_HIGH, Record<TermLength, number>> = {
-  [QUOTE_ANCHOR_LOW]: {
-    10: 218.9,
-    15: 267.6,
-    20: 350,
-    30: 630
-  },
-  [QUOTE_ANCHOR_HIGH]: {
-    10: 369.74,
-    15: 464.92,
-    20: 630,
-    30: 1184.16
-  }
-};
-
 type CalculationOptions = {
-  realReturnOverride?: number;
-  employerCoverageCreditFactor?: number;
+  realDiscountRateOverride?: number;
   socialSecurityCreditFactor?: number;
   mortgageStrategy?: MortgageStrategy;
   includeCollegeFunding?: boolean;
@@ -56,8 +38,7 @@ type CalculationOptions = {
 type ScenarioConfig = {
   id: ScenarioId;
   label: string;
-  realReturn: number;
-  employerCoverageCreditFactor: number;
+  realDiscountRate: number;
   socialSecurityCreditFactor: number;
   includeCollegeFunding: boolean;
 };
@@ -115,6 +96,50 @@ export function presentValueAnnuity(
   );
 }
 
+export function presentValueSurvivorSpending(
+  inputs: CalculatorInputs,
+  deathYear: number,
+  realDiscountRate: number
+) {
+  const spouseAgeAtDeath = inputs.spouseAge + deathYear;
+  const remainingMonths = Math.max(
+    0,
+    Math.round((inputs.survivingSpouseLongevityAge - spouseAgeAtDeath) * 12)
+  );
+  const monthlyRealDiscountRate = Math.pow(1 + realDiscountRate, 1 / 12) - 1;
+  let presentValue = 0;
+
+  for (let month = 0; month < remainingMonths; month += 1) {
+    const yearsAfterDeath = month / 12;
+    const modelYear = deathYear + yearsAfterDeath;
+    const spouseAge = spouseAgeAtDeath + yearsAfterDeath;
+    const householdSpendingMonthly = Math.max(
+      0,
+      inputs.monthlyHouseholdNeedExcludingMortgage -
+        (modelYear >= inputs.dependentDropOffYear
+          ? inputs.dependentDropOffAmount / 12
+          : 0)
+    );
+    const earnedIncomeMonthly =
+      spouseAge < inputs.survivingSpouseIncomeEndAge
+        ? Math.max(0, inputs.survivingSpouseIncome) / 12
+        : 0;
+    const retirementIncomeMonthly =
+      spouseAge >= inputs.survivingSpouseRetirementIncomeStartAge
+        ? Math.max(0, inputs.survivingSpouseRetirementIncome) / 12
+        : 0;
+    const monthlyDeficit = Math.max(
+      0,
+      householdSpendingMonthly - earnedIncomeMonthly - retirementIncomeMonthly
+    );
+
+    presentValue +=
+      monthlyDeficit / Math.pow(1 + monthlyRealDiscountRate, month);
+  }
+
+  return presentValue;
+}
+
 export function estimateSocialSecurityPia(
   coveredAnnualEarnings: number,
   taxableMaximum = SOCIAL_SECURITY_2026_TAXABLE_MAXIMUM
@@ -148,22 +173,27 @@ export function estimateAnnualSocialSecuritySurvivorBenefit(
   deathYear: number,
   benefitYearOffset = 0
 ) {
+  if (!inputs.socialSecurityStatementVerified) return 0;
   const childEndAge = inputs.socialSecurityChildSecondarySchoolToAge19 ? 19 : 18;
-  const childAge = inputs.youngestChildAge + deathYear + benefitYearOffset;
-  const childBeneficiaries =
-    childAge < childEndAge ? Math.max(0, inputs.socialSecurityEligibleChildren) : 0;
-  const caregiverBeneficiaries = childAge < 16 && childBeneficiaries > 0 ? 1 : 0;
-  const beneficiaryCount = childBeneficiaries + caregiverBeneficiaries;
-  if (beneficiaryCount <= 0) return 0;
+  const ages = inputs.childAges.map(
+    (age) => Math.max(0, age) + deathYear + benefitYearOffset
+  );
+  const eligibleChildren = ages.filter((age) => age < childEndAge).length;
+  const hasCaregiverEligibility = ages.some((age) => age < 16);
+  if (eligibleChildren <= 0) return 0;
 
-  if (inputs.socialSecurityBenefitMode === "manual") {
-    return Math.max(0, inputs.manualAnnualSocialSecuritySurvivorBenefit);
-  }
-
-  const pia = estimateSocialSecurityPia(inputs.socialSecurityCoveredAnnualEarnings);
-  const uncappedMonthlyBenefit = pia * 0.75 * beneficiaryCount;
-  const familyMaximum = estimateSocialSecurityFamilyMaximum(pia);
-  return Math.min(uncappedMonthlyBenefit, familyMaximum) * 12;
+  const uncappedMonthly =
+    eligibleChildren * Math.max(0, inputs.socialSecurityChildMonthlyBenefit) +
+    (hasCaregiverEligibility
+      ? Math.max(0, inputs.socialSecurityCaregiverMonthlyBenefit)
+      : 0);
+  const familyMaximum = Math.max(
+    0,
+    inputs.socialSecurityFamilyMaximumMonthlyBenefit
+  );
+  const creditedMonthly =
+    familyMaximum > 0 ? Math.min(uncappedMonthly, familyMaximum) : uncappedMonthly;
+  return creditedMonthly * 12;
 }
 
 export function presentValueSocialSecuritySurvivorBenefits(
@@ -171,15 +201,16 @@ export function presentValueSocialSecuritySurvivorBenefits(
   deathYear: number,
   realDiscountRate: number
 ) {
+  if (!inputs.socialSecurityStatementVerified) return 0;
   const childEndAge = inputs.socialSecurityChildSecondarySchoolToAge19 ? 19 : 18;
-  const youngestAgeAtDeath = inputs.youngestChildAge + deathYear;
-  const maxBenefitYears = Math.max(0, childEndAge - youngestAgeAtDeath);
+  const youngestAge = Math.min(...inputs.childAges.map((age) => Math.max(0, age)), childEndAge);
+  const maxBenefitYears = Math.max(0, Math.ceil(childEndAge - youngestAge - deathYear));
   let presentValue = 0;
 
   for (let offset = 0; offset < maxBenefitYears; offset += 1) {
     presentValue +=
       estimateAnnualSocialSecuritySurvivorBenefit(inputs, deathYear, offset) /
-      Math.pow(1 + realDiscountRate, offset);
+      Math.pow(1 + realDiscountRate, offset + 1);
   }
 
   return presentValue;
@@ -187,64 +218,6 @@ export function presentValueSocialSecuritySurvivorBenefits(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-export function peakRequiredCoverage(rows: YearlyRow[]) {
-  return Math.max(
-    0,
-    ...rows
-      .filter((row) => row.year < 30)
-      .map((row) => row.nominalRequiredCoverage)
-  );
-}
-
-export function deriveQuoteCostWeights(peakCoverage: number): Record<TermLength, number> {
-  const factor = clamp(
-    (Math.max(0, peakCoverage) - QUOTE_ANCHOR_LOW) /
-      (QUOTE_ANCHOR_HIGH - QUOTE_ANCHOR_LOW),
-    0,
-    1
-  );
-  const interpolatedPremiums = TERMS.reduce((premiums, term) => {
-    premiums[term] =
-      TERM4SALE_QUOTES[QUOTE_ANCHOR_LOW][term] +
-      factor *
-        (TERM4SALE_QUOTES[QUOTE_ANCHOR_HIGH][term] -
-          TERM4SALE_QUOTES[QUOTE_ANCHOR_LOW][term]);
-    return premiums;
-  }, {} as Record<TermLength, number>);
-  const baselinePremium = Math.max(0.01, interpolatedPremiums[10]);
-
-  return TERMS.reduce((weights, term) => {
-    weights[term] = term === 10 ? 1 : interpolatedPremiums[term] / baselinePremium;
-    return weights;
-  }, {} as Record<TermLength, number>);
-}
-
-export function effectiveCostWeightsForRows(
-  rows: YearlyRow[],
-  inputs: CalculatorInputs
-) {
-  if (inputs.premiumWeightMode === "manual") {
-    return {
-      anchor: peakRequiredCoverage(rows),
-      weights: sanitizeCostWeights(inputs.costWeights)
-    };
-  }
-
-  const anchor = peakRequiredCoverage(rows);
-  return {
-    anchor,
-    weights: deriveQuoteCostWeights(anchor)
-  };
-}
-
-function sanitizeCostWeights(weights: Record<TermLength, number>) {
-  return TERMS.reduce((sanitized, term) => {
-    const weight = weights[term];
-    sanitized[term] = Number.isFinite(weight) ? Math.max(0, weight) : 0;
-    return sanitized;
-  }, {} as Record<TermLength, number>);
 }
 
 export function pensionAccrualPercent(serviceYears: number) {
@@ -374,13 +347,35 @@ export function presentValueRemainingMortgagePayments(
   if (balance <= 0 || monthsLeft <= 0) return 0;
 
   const payment = monthlyMortgagePayment(balance, annualRate, yearsRemaining);
-  const annualPaymentInDeathYearDollars =
-    (payment * 12) / inflationFactor(inflationRate, year);
-  return presentValueAnnuity(
-    annualPaymentInDeathYearDollars,
-    Math.ceil(monthsLeft / 12),
+  return presentValueFixedNominalMonthlyPayments(
+    payment,
+    monthsLeft,
+    year,
+    inflationRate,
     realDiscountRate
   );
+}
+
+export function presentValueFixedNominalMonthlyPayments(
+  monthlyPayment: number,
+  months: number,
+  deathYear: number,
+  inflationRate: number,
+  realDiscountRate: number
+) {
+  if (monthlyPayment <= 0 || months <= 0) return 0;
+  const nominalAnnualDiscountRate =
+    (1 + realDiscountRate) * (1 + inflationRate) - 1;
+  const monthlyDiscountRate =
+    Math.pow(1 + nominalAnnualDiscountRate, 1 / 12) - 1;
+  const nominalPvAtDeath =
+    Math.abs(monthlyDiscountRate) < 0.0000001
+      ? monthlyPayment * months
+      : monthlyPayment *
+        ((1 - Math.pow(1 + monthlyDiscountRate, -months)) /
+          monthlyDiscountRate);
+
+  return nominalPvAtDeath / inflationFactor(inflationRate, deathYear);
 }
 
 export function presentValueMortgagePaymentsForBalance(
@@ -395,11 +390,11 @@ export function presentValueMortgagePaymentsForBalance(
   if (balance <= 0 || monthsLeft <= 0) return 0;
 
   const payment = monthlyMortgagePayment(balance, annualRate, monthsLeft / 12);
-  const annualPaymentInDeathYearDollars =
-    (payment * 12) / inflationFactor(inflationRate, deathYear);
-  return presentValueAnnuity(
-    annualPaymentInDeathYearDollars,
-    Math.ceil(monthsLeft / 12),
+  return presentValueFixedNominalMonthlyPayments(
+    payment,
+    monthsLeft,
+    deathYear,
+    inflationRate,
     realDiscountRate
   );
 }
@@ -431,19 +426,12 @@ export function buildBaseNeedRows(
   options: CalculationOptions = {}
 ) {
   const realDiscountRate =
-    options.realReturnOverride ??
+    options.realDiscountRateOverride ??
     fisherRealRate(inputs.nominalDiscountRate, inputs.inflationRate);
   const realAssetGrowthRate =
-    options.realReturnOverride ??
     fisherRealRate(inputs.nominalAssetGrowthRate, inputs.inflationRate);
   const realRetirementGrowthRate =
-    options.realReturnOverride ??
     fisherRealRate(inputs.nominalRetirementGrowthRate, inputs.inflationRate);
-  const employerCoverageCreditFactor = clamp(
-    options.employerCoverageCreditFactor ?? inputs.employerCoverageCreditFactor,
-    0,
-    1
-  );
   const socialSecurityCreditFactor = clamp(
     options.socialSecurityCreditFactor ?? inputs.socialSecurityCreditFactor,
     0,
@@ -453,11 +441,6 @@ export function buildBaseNeedRows(
     options.includeCollegeFunding ?? inputs.collegeFundingMode === "included";
   const retirementHaircut = effectiveRetirementTaxHaircut(inputs);
   const retirementHorizon = Math.max(0, inputs.retirementAge - inputs.insuredAge);
-  const annualSpendingDeficit = Math.max(
-    0,
-    inputs.monthlyHouseholdNeedExcludingMortgage * 12 -
-      inputs.survivingSpouseIncome
-  );
   const rows: YearlyRow[] = [];
 
   for (let year = 0; year <= HORIZON_YEARS; year += 1) {
@@ -472,29 +455,21 @@ export function buildBaseNeedRows(
       remainingIncomeYears,
       realDiscountRate
     );
-    const yearsUntilDrop = Math.max(0, inputs.dependentDropOffYear - year);
-    const preDropYears = Math.min(remainingSpendingYears, yearsUntilDrop);
-    const postDropYears = Math.max(0, remainingSpendingYears - preDropYears);
-    const postDropAnnualSpendingDeficit = Math.max(
-      0,
-      annualSpendingDeficit - inputs.dependentDropOffAmount
+    const spendingPvNeed = presentValueSurvivorSpending(
+      inputs,
+      year,
+      realDiscountRate
     );
-    const spendingPvNeed =
-      presentValueAnnuity(
-        annualSpendingDeficit,
-        preDropYears,
-        realDiscountRate
-      ) +
-      presentValueAnnuity(
-        postDropAnnualSpendingDeficit,
-        postDropYears,
-        realDiscountRate
-      ) / Math.pow(1 + realDiscountRate, preDropYears);
-    const childAgeAtDeath = inputs.youngestChildAge + year;
-    const childcareSupportYears = Math.min(
-      remainingSpendingYears,
-      Math.max(0, inputs.childcareSupportEndAge - childAgeAtDeath)
-    );
+    const youngestChildAge = inputs.childAges.length
+      ? Math.min(...inputs.childAges.map((age) => Math.max(0, age)))
+      : inputs.childcareSupportEndAge;
+    const childAgeAtDeath = youngestChildAge + year;
+    const childcareSupportYears = inputs.childAges.length
+      ? Math.min(
+          remainingSpendingYears,
+          Math.max(0, inputs.childcareSupportEndAge - childAgeAtDeath)
+        )
+      : 0;
     const childcareHouseholdSupportPv = presentValueAnnuity(
       inputs.childcareHouseholdSupportAnnual,
       childcareSupportYears,
@@ -512,6 +487,7 @@ export function buildBaseNeedRows(
           Math.pow(1 + realDiscountRate, collegeYear - year);
       }
     }
+    const otherImmediateNeedsReal = Math.max(0, inputs.otherImmediateNeeds);
     const grossSocialSecuritySurvivorPv =
       presentValueSocialSecuritySurvivorBenefits(inputs, year, realDiscountRate);
     const creditedSocialSecuritySurvivorPv =
@@ -594,12 +570,13 @@ export function buildBaseNeedRows(
       inputs.inflationRate,
       year
     );
-    const creditedEmployerCoverage = realEmployerCoverage * employerCoverageCreditFactor;
+    const creditedEmployerCoverage = 0;
     const spendingDemandReal = Math.max(
       0,
       spendingPvNeed +
         childcareHouseholdSupportPv +
         collegeFundingPv +
+        otherImmediateNeedsReal +
         realMortgageDemand -
         creditedSocialSecuritySurvivorPv
     );
@@ -631,6 +608,7 @@ export function buildBaseNeedRows(
       incomePvNeed,
       childcareHouseholdSupportPv,
       collegeFundingPv,
+      otherImmediateNeedsReal,
       grossSocialSecuritySurvivorPv,
       creditedSocialSecuritySurvivorPv,
       spendingPvNeed,
@@ -668,7 +646,7 @@ export function buildBaseNeedRows(
       nominalPersonalCoverage: 0,
       realPersonalCoverage: 0,
       personalLadderCoverage: 0,
-      totalCoverage: creditedEmployerCoverage,
+      totalCoverage: 0,
       undercoverage: spendingNetNeedReal,
       overcoverage: 0,
       capitalSupply,
@@ -695,14 +673,12 @@ function coverageAtYear(amounts: Record<TermLength, number>, year: number) {
 }
 
 function buildPolicies(
-  amounts: Record<TermLength, number>,
-  inputs: CalculatorInputs
+  amounts: Record<TermLength, number>
 ): PolicyRecommendation[] {
   return TERMS.map((termYears) => ({
     termYears,
     amount: amounts[termYears],
-    activeYears: termYears,
-    costWeight: inputs.costWeights[termYears]
+    activeYears: termYears
   }));
 }
 
@@ -712,109 +688,40 @@ export function solvePolicyLadder(
 ) {
   const increment = Math.max(1, inputs.coverageIncrement);
   const cap = Math.max(increment, inputs.maxCoveragePerTerm);
-  const capUnits = Math.max(1, Math.floor(cap / increment));
-  const costWeights = sanitizeCostWeights(inputs.costWeights);
   const requirements = rows
     .filter((row) => row.year < 30)
     .map((row) => row.nominalRequiredCoverage);
-  const requirementUnits = requirements.map((need) =>
-    Math.ceil(Math.max(0, need) / increment)
+  const peak = (start: number, end: number) =>
+    Math.max(0, ...requirements.slice(start, end));
+  const roundLayer = (amount: number) =>
+    Math.ceil(Math.max(0, amount) / increment) * increment;
+  const finalAmounts: Record<TermLength, number> = {
+    10: 0,
+    15: 0,
+    20: 0,
+    30: Math.min(cap, roundLayer(peak(20, 30)))
+  };
+  finalAmounts[20] = Math.min(
+    cap,
+    roundLayer(peak(15, 20) - finalAmounts[30])
   );
-  const maxUnitsInRange = (start: number, end: number) =>
-    Math.max(0, ...requirementUnits.slice(start, end));
-
-  const maxNeedUnits = Math.max(0, ...requirementUnits);
-  const need0to9 = maxUnitsInRange(0, 10);
-  const need10to14 = maxUnitsInRange(10, 15);
-  const need15to19 = maxUnitsInRange(15, 20);
-  let bestAmounts: Record<TermLength, number> | undefined;
-  let bestScore = Number.POSITIVE_INFINITY;
-  let bestFace = Number.POSITIVE_INFINITY;
-  let feasible = false;
-
-  const maxByTerm: Record<TermLength, number> = {
-    10: Math.min(maxUnitsInRange(0, 10), capUnits),
-    15: Math.min(maxUnitsInRange(0, 15), capUnits),
-    20: Math.min(maxUnitsInRange(0, 20), capUnits),
-    30: Math.min(maxNeedUnits, capUnits)
-  };
-
-  const evaluate = (units: Record<TermLength, number>) => {
-    if (TERMS.some((term) => units[term] > capUnits)) return;
-
-    const amounts: Record<TermLength, number> = {
-      10: units[10] * increment,
-      15: units[15] * increment,
-      20: units[20] * increment,
-      30: units[30] * increment
-    };
-    const coversAll = requirements.every(
-      (need, year) => coverageAtYear(amounts, year) >= need
-    );
-    if (!coversAll) return;
-
-    feasible = true;
-    const weightedFaceAmount = TERMS.reduce(
-      (sum, term) => sum + amounts[term] * costWeights[term],
-      0
-    );
-    const totalFaceAmount = TERMS.reduce((sum, term) => sum + amounts[term], 0);
-    if (
-      weightedFaceAmount < bestScore ||
-      (weightedFaceAmount === bestScore && totalFaceAmount < bestFace)
-    ) {
-      bestScore = weightedFaceAmount;
-      bestFace = totalFaceAmount;
-      bestAmounts = amounts;
-    }
-  };
-
-  for (let u30 = 0; u30 <= maxByTerm[30]; u30 += 1) {
-    for (let u20 = 0; u20 <= maxByTerm[20]; u20 += 1) {
-      if (u20 + u30 < need15to19) continue;
-
-      const minimumU15 = Math.max(0, need10to14 - u20 - u30);
-      if (minimumU15 > maxByTerm[15]) continue;
-
-      const u15Candidates = new Set([
-        minimumU15,
-        Math.min(maxByTerm[15], Math.max(minimumU15, need0to9 - u20 - u30))
-      ]);
-
-      for (const u15 of u15Candidates) {
-        const u10 = Math.max(0, need0to9 - u15 - u20 - u30);
-        evaluate({
-          10: u10,
-          15: u15,
-          20: u20,
-          30: u30
-        });
-      }
-    }
-  }
-
-  const finalAmounts =
-    bestAmounts ??
-    (() => {
-      const fallbackAmount = Math.min(capUnits, maxNeedUnits) * increment;
-      return {
-        10: fallbackAmount,
-        15: fallbackAmount,
-        20: fallbackAmount,
-        30: fallbackAmount
-      };
-    })();
+  finalAmounts[15] = Math.min(
+    cap,
+    roundLayer(peak(10, 15) - finalAmounts[20] - finalAmounts[30])
+  );
+  finalAmounts[10] = Math.min(
+    cap,
+    roundLayer(
+      peak(0, 10) - finalAmounts[15] - finalAmounts[20] - finalAmounts[30]
+    )
+  );
+  const feasible = requirements.every(
+    (need, year) => coverageAtYear(finalAmounts, year) >= need
+  );
 
   return {
     amounts: finalAmounts,
-    policies: buildPolicies(finalAmounts, {
-      ...inputs,
-      costWeights
-    }),
-    weightedFaceAmount: TERMS.reduce(
-      (sum, term) => sum + finalAmounts[term] * costWeights[term],
-      0
-    ),
+    policies: buildPolicies(finalAmounts),
     feasible
   };
 }
@@ -846,12 +753,7 @@ function calculateSingleLadder(
     realRetirementGrowthRate,
     effectiveRetirementTaxHaircut
   } = buildBaseNeedRows(inputs, options);
-  const effectivePricing = effectiveCostWeightsForRows(rows, inputs);
-  const solverInputs = {
-    ...inputs,
-    costWeights: effectivePricing.weights
-  };
-  const solved = solvePolicyLadder(rows, solverInputs);
+  const solved = solvePolicyLadder(rows, inputs);
   const warnings: SolverWarning[] = [];
 
   const projectedRows = rows.map((row) => {
@@ -862,7 +764,7 @@ function calculateSingleLadder(
       inputs.inflationRate,
       row.year
     );
-    const totalCoverage = row.creditedEmployerCoverage + realPersonalCoverage;
+    const totalCoverage = realPersonalCoverage;
     const capitalDemand = row.spendingDemandReal;
     const capitalSupply = row.accessibleAssets + totalCoverage;
     const capitalGap = capitalSupply - capitalDemand;
@@ -913,14 +815,11 @@ function calculateSingleLadder(
     realAssetGrowthRate,
     realRetirementGrowthRate,
     effectiveRetirementTaxHaircut,
-    effectiveCostWeights: effectivePricing.weights,
-    premiumPricingAnchor: effectivePricing.anchor,
     capitalSufficiency: {
       worstGap: worstRow.capitalGap,
       worstGapYear: worstRow.year,
       firstDeficitYear: firstDeficit?.year ?? null
     },
-    weightedFaceAmount: solved.weightedFaceAmount,
     recommended10YearTerm: policyAmount(solved.policies, 10),
     recommended15YearTerm: policyAmount(solved.policies, 15),
     recommended20YearTerm: policyAmount(solved.policies, 20),
@@ -936,26 +835,23 @@ function scenarioConfigs(inputs: CalculatorInputs): ScenarioConfig[] {
     {
       id: "conservative",
       label: "Conservative / Max Safety",
-      realReturn: inputs.realReturnConservative,
-      employerCoverageCreditFactor: 0,
+      realDiscountRate: inputs.realReturnConservative,
       socialSecurityCreditFactor: 0,
-      includeCollegeFunding: inputs.collegeFundingMode === "included"
+      includeCollegeFunding: false
     },
     {
       id: "base",
       label: "Base Case",
-      realReturn: inputs.realReturnBaseCase,
-      employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
+      realDiscountRate: inputs.realReturnBaseCase,
       socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
-      includeCollegeFunding: inputs.collegeFundingMode === "included"
+      includeCollegeFunding: false
     },
     {
       id: "optimistic",
       label: "Lower-Need Scenario",
-      realReturn: inputs.realReturnOptimistic,
-      employerCoverageCreditFactor: 1,
+      realDiscountRate: inputs.realReturnOptimistic,
       socialSecurityCreditFactor: 1,
-      includeCollegeFunding: inputs.collegeFundingMode === "included"
+      includeCollegeFunding: false
     }
   ];
 }
@@ -965,8 +861,7 @@ function buildScenarioSummary(
   config: ScenarioConfig
 ): ScenarioSummary {
   const commonOptions: CalculationOptions = {
-    realReturnOverride: config.realReturn,
-    employerCoverageCreditFactor: config.employerCoverageCreditFactor,
+    realDiscountRateOverride: config.realDiscountRate,
     socialSecurityCreditFactor: config.socialSecurityCreditFactor,
     includeCollegeFunding: config.includeCollegeFunding
   };
@@ -995,8 +890,7 @@ function buildScenarioSummary(
   return {
     id: config.id,
     label: config.label,
-    realReturn: config.realReturn,
-    employerCoverageCreditFactor: config.employerCoverageCreditFactor,
+    realDiscountRate: config.realDiscountRate,
     socialSecurityCreditFactor: config.socialSecurityCreditFactor,
     includesCollegeFunding: config.includeCollegeFunding,
     currentEmployerGroupCoverage: firstRow.realEmployerCoverage,
@@ -1039,10 +933,9 @@ function buildScenarioSummary(
 
 export function calculateLadder(inputs: CalculatorInputs): CalculatorResult {
   const baseOptions: CalculationOptions = {
-    realReturnOverride: inputs.realReturnBaseCase,
-    employerCoverageCreditFactor: inputs.employerCoverageCreditFactor,
+    realDiscountRateOverride: inputs.realReturnBaseCase,
     socialSecurityCreditFactor: inputs.socialSecurityCreditFactor,
-    includeCollegeFunding: inputs.collegeFundingMode === "included"
+    includeCollegeFunding: false
   };
   const payoff = calculateSingleLadder(inputs, {
     ...baseOptions,
